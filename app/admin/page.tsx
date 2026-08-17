@@ -2,8 +2,9 @@
 
 import { useMemo, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { SignInButton, useUser } from '@clerk/nextjs';
+import { useUser } from '@clerk/nextjs';
 import { useConvexAuth } from 'convex/react';
+import { useRequireAuth } from '@/components/AuthGate';
 import { adminConfig, ADMIN_TABLE_KEYS } from '@/lib/adminConfig';
 import { AdminTableView } from '@/components/admin/AdminTableView';
 import { AdminEditRequestsTab } from '@/components/admin/AdminEditRequestsTab';
@@ -39,24 +40,8 @@ function AdminDashboardContent() {
   }
 
   // --- Auth & Access Guard Sub-Views ---
-  if (isLoaded && !user) {
-    return (
-      <div className="mx-auto flex max-w-2xl flex-col gap-4 px-4 py-16">
-        <div className="rounded-3xl border border-ts-border bg-ts-surface p-6 text-center">
-          <Shield className="mx-auto mb-3 h-8 w-8 text-ts-text-3" />
-          <h1 className="text-xl font-bold text-ts-text-1">Sign in required</h1>
-          <p className="mt-2 text-sm text-ts-text-3">
-            Sign in with a staff account to access the admin dashboard.
-          </p>
-          <SignInButton>
-            <button className="mt-4 rounded-2xl bg-ts-accent px-4 py-2 text-sm font-bold text-ts-text-inv">
-              Sign in
-            </button>
-          </SignInButton>
-        </div>
-      </div>
-    );
-  }
+  const auth = useRequireAuth();
+  if (auth) return auth;
 
   if (isLoaded && user && !isStaff) {
     return (

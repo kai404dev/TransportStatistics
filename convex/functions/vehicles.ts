@@ -108,11 +108,15 @@ export const checkVehicleRidden = query({
   args: {
     user: v.string(),
     vehicleIdentifier: v.string(),
+    operator: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     if (!args.vehicleIdentifier) return { ridden: false, count: 0, trips: [] };
 
-    const trips = await getAllUserTrips(ctx, args.user);
+    let trips = await getAllUserTrips(ctx, args.user);
+    if (args.operator) {
+      trips = trips.filter((trip) => trip.operator === args.operator);
+    }
 
     // Build exact-match keys from the identifier. Format varies per source,
     // e.g. "63176 - SN64 CGU" (fleet + reg) or just "SN64 CGU" / "63176".

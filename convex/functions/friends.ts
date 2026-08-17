@@ -1,6 +1,7 @@
 import { mutation, query, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { v } from "convex/values";
 import type { Doc } from "../_generated/dataModel";
+import { incrementUserTripStats, decrementUserTripStats } from "./userTripStats";
 
 // ── Helpers ──
 
@@ -571,6 +572,7 @@ export const markTripParticipation = mutation({
     }
 
     await ctx.db.insert("tripParticipants", payload);
+    await incrementUserTripStats(ctx, me, trip.service_date);
   },
 });
 
@@ -581,13 +583,19 @@ export const removeTripParticipation = mutation({
     if (!identity) throw new Error("Not authenticated");
     const me = identity.subject;
 
-    const existing = await ctx.db
-      .query("tripParticipants")
-      .withIndex("by_tripId_user", (q) => q.eq("tripId", args.tripId).eq("user", me))
-      .first();
+    const [existing, trip] = await Promise.all([
+      ctx.db
+        .query("tripParticipants")
+        .withIndex("by_tripId_user", (q) => q.eq("tripId", args.tripId).eq("user", me))
+        .first(),
+      ctx.db.get(args.tripId),
+    ]);
 
     if (!existing) throw new Error("Not a participant");
 
+    if (trip) {
+      await decrementUserTripStats(ctx, me, trip.service_date);
+    }
     await ctx.db.delete(existing._id);
   },
 });
@@ -800,6 +808,9 @@ export const removeTripParticipant = mutation({
 
     if (!existing) throw new Error("Not a participant");
 
+    if (trip) {
+      await decrementUserTripStats(ctx, args.participantClerkId, trip.service_date);
+    }
     await ctx.db.delete(existing._id);
   },
 });

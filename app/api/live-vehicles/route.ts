@@ -269,6 +269,7 @@ export const GET = withApiKeyAuth(async (_auth, request: Request) => {
           rotation: b.heading ?? 0,
           service: b.service?.line_name ?? "N/A",
           destination: b.destination ?? "Unknown",
+          operator: b.operator_name || b.operator || b.service?.operator || "",
           colour: b.vehicle?.colour || b.vehicle?.css || "#fff",
           liveryID: b.vehicle?.livery ?? 0,
           trip_id: b.trip_id ?? null,

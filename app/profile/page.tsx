@@ -8,6 +8,7 @@ import { CompactTripRow } from "@/components/CompactTripRow";
 import { useUser } from "@clerk/nextjs";
 import { useMemo, useEffect, useRef, useState } from "react";
 import { MapPinned, Info, LayoutList, Rows3 } from "lucide-react";
+import { useRequireAuth } from "@/components/AuthGate";
 
 type TripGroup = {
   dateLabel: string;
@@ -56,7 +57,7 @@ function formatDateKey(timestamp: number) {
 }
 
 export default function ProfilePage() {
-  const { isSignedIn, user } = useUser();
+  const { user } = useUser();
 
   const { results: trips, status, loadMore } = usePaginatedQuery(
     api.functions.trips.getMyTripsPaginated,
@@ -138,13 +139,8 @@ export default function ProfilePage() {
     return [...groups.values()];
   }, [trips]);
 
-  if (!isSignedIn) {
-    return (
-      <div className="max-w-4xl mx-auto p-4 md:p-8">
-        <div className="text-center py-10 text-slate-400">Please sign in to view your profile.</div>
-      </div>
-    );
-  }
+  const auth = useRequireAuth();
+  if (auth) return auth;
 
   return (
     <div className="max-w-4xl mx-auto px-4 pt-6 pb-8 md:px-8 md:pt-8">

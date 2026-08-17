@@ -6,7 +6,8 @@ import { useQuery } from 'convex/react';
 import { useUser } from '@clerk/nextjs';
 import { api } from '@/convex/_generated/api';
 import { TripRow } from '@/components/TripRow';
-import { ArrowLeft, CalendarDays, MapPinned, NotebookText } from 'lucide-react';
+import { ArrowLeft, CalendarDays, MapPinned } from 'lucide-react';
+import { useRequireAuth } from '@/components/AuthGate';
 
 type TripRecord = {
   _id: string;
@@ -61,7 +62,7 @@ function StatCard({ label, value }: { label: string; value: string }) {
 
 export default function TripDatePage({ params }: TripDatePageProps) {
   const { date } = use(params);
-  const { isSignedIn, user } = useUser();
+  const { user } = useUser();
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC';
   const trips = useQuery(
     api.functions.trips.getMyTripsByDate,
@@ -104,19 +105,8 @@ export default function TripDatePage({ params }: TripDatePageProps) {
       : 'No trips logged';
   const dateLabel = formatDateLabel(date);
 
-  if (!isSignedIn) {
-    return (
-      <div className="mx-auto max-w-4xl px-4 py-10 md:px-8 md:py-12">
-        <div className="rounded-3xl border border-ts-border bg-ts-surface p-8 text-center text-ts-text-2">
-          <NotebookText className="mx-auto h-10 w-10 text-ts-text-3" />
-          <h1 className="mt-4 text-2xl font-bold text-ts-text-1">Sign in to view your trips</h1>
-          <p className="mt-2 text-sm text-ts-text-3">
-            This daily overview is only available when you are signed in.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  const auth = useRequireAuth();
+  if (auth) return auth;
 
   if (trips === undefined) {
     return (

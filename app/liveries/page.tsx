@@ -4,12 +4,16 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useUser } from "@clerk/nextjs";
 import { LoaderCircle } from "lucide-react";
+import { useRequireAuth } from "@/components/AuthGate";
 
 export default function LiveryPage() {
   const { user } = useUser();
   const liveries = useQuery(api.functions.liveries.getLiveryGrid, 
     user?.id ? { user: user.id } : "skip"
   );
+
+  const auth = useRequireAuth();
+  if (auth) return auth;
 
   if (!liveries) {
     return (

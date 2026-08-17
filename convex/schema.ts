@@ -297,4 +297,22 @@ export default defineSchema({
     .index("by_status", ["status"])
     .index("by_table_recordId", ["table", "recordId"])
     .index("by_userId", ["userId"]),
+
+  // ── Cached Trip Stats ──
+
+  userTripStats: defineTable({
+    user: v.string(),
+    trip_count: v.number(),
+    day_count: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_user", ["user"]),
+
+  userTripDays: defineTable({
+    user: v.string(),
+    day: v.string(), // "YYYY-MM-DD"
+    count: v.number(),
+  })
+    .index("by_user_day", ["user", "day"])
+    .index("by_user", ["user"]),
 });

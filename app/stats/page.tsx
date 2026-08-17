@@ -5,6 +5,7 @@ import { useQuery } from "convex/react";
 import { useUser } from "@clerk/nextjs";
 import { api } from "@/convex/_generated/api";
 import { LoaderCircle, Info } from "lucide-react";
+import { useRequireAuth } from "@/components/AuthGate";
 
 // --- Sub-components ---
 
@@ -242,12 +243,9 @@ export default function StatsPage() {
     return { counts, weekRangeLabel, maxInWeek };
   }, [stats?.dailyCounts, weekOffset]);
 
-  if (!user)
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center text-sm text-ts-text-2">
-        Sign in to see stats.
-      </div>
-    );
+  const auth = useRequireAuth();
+  if (auth) return auth;
+
   if (stats === undefined)
     return (
       <div className="flex min-h-[60vh] items-center justify-center gap-3">

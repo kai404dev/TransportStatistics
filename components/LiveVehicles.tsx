@@ -215,7 +215,7 @@ export const LiveVehicles = ({ bounds }: { bounds: { minLat: number; maxLat: num
         <div class="v-popup-subtitle">${item.popup_data.label2}${item.popup_data.link2
           ? `<br/><a href="${item.popup_data.link2}" target="_blank" style="color:#60a5fa;font-size:.8rem;">View Vehicle</a>`
           : ""}</div>
-        <div data-ridden-status style="font-size:.8rem;margin-bottom:8px;"></div>
+        <div data-ridden-status style="font-size:.8rem;margin-bottom:8px;"><span style="color:#9ab89a;">Checking...</span></div>
         <a href="${item.popup_data.log_link}" class="v-popup-btn">Log this ${type}</a>`;
 
     const popup = new maplibregl.Popup({ offset: 25, className: "vehicle-popup" }).setHTML(content);

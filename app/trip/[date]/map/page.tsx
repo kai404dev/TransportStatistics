@@ -8,6 +8,7 @@ import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { getMapStyleUrl } from '@/components/mapStyleUrl';
 import { useTheme } from '@/components/ThemeProvider';
+import { useRequireAuth } from '@/components/AuthGate';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // OLD DJANGO COLOUR HELPERS
@@ -207,7 +208,9 @@ export default function TripDateMapPage({ params }: { params: Promise<{ date: st
     return () => map.remove();
   }, [theme, trips]);
 
-  if (!user) return <div className="p-8 text-ts-text-1 bg-[#0d1410] h-screen">Please sign in...</div>;
+  const auth = useRequireAuth(true);
+  if (auth) return auth;
+
   if (loadError) return <div className="p-8 text-ts-text-1 bg-[#0d1410] h-screen">Failed to load trips: {loadError}</div>;
   if (trips === undefined) {
     return (

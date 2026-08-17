@@ -8,6 +8,7 @@ const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const vehicle = searchParams.get("vehicle");
+  const operator = searchParams.get("operator");
 
   if (!vehicle) {
     return NextResponse.json({ error: "Missing vehicle parameter" }, { status: 400 });
@@ -22,6 +23,7 @@ export async function GET(request: Request) {
     const result = await convex.query(api.functions.vehicles.checkVehicleRidden, {
       user: userId,
       vehicleIdentifier: vehicle,
+      operator: operator || undefined,
     });
     return NextResponse.json(result);
   } catch (error) {

@@ -1,6 +1,7 @@
 import { mutation, internalMutation } from "../_generated/server";
 import { v } from "convex/values";
 import { Id } from "../_generated/dataModel";
+import { incrementUserTripStats } from "./userTripStats";
 
 export const importBatch = mutation({
   args: { features: v.array(v.any()) },
@@ -207,6 +208,7 @@ export const importTrips = mutation({
 
         notes: cleanString(trip.notes),
       });
+      await incrementUserTripStats(ctx, args.userId, timestamp);
     }
   },
 });
@@ -341,6 +343,7 @@ export const importTripsChunk = internalMutation({
         first_units,
         notes: cleanString(trip.notes),
       });
+      await incrementUserTripStats(ctx, args.userId, timestamp);
     }
   },
 });

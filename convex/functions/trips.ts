@@ -6,6 +6,13 @@ import { v } from "convex/values";
 import { ensureUserRecord } from "./users";
 import { areFriends } from "./friends";
 import { getAllUserTrips, getUserTripsForDateRange } from "./userTrips";
+import {
+  incrementUserTripStats,
+  decrementUserTripStats,
+  moveUserTripStatsDay,
+  getCachedUserTripStats,
+  recalculateUserTripStats,
+} from "./userTripStats";
 
 export const fixTripLogsPaginated = mutation({
   args: {
@@ -802,8 +809,13 @@ export const getMyTripsPaginated = query({
 export const getMyTripCount = query({
   args: { user: v.string() },
   handler: async (ctx, args) => {
-    const trips = await getAllUserTrips(ctx, args.user);
+    const cached = await getCachedUserTripStats(ctx, args.user);
+    if (cached) {
+      return { trips: cached.trip_count, days: cached.day_count };
+    }
 
+    // Fallback: calculate from scratch and populate cache on first read.
+    const trips = await getAllUserTrips(ctx, args.user);
     const days = new Set(
       trips.map((t) => {
         const ts = t.service_date > 1_000_000_000_000 ? t.service_date : t.service_date * 1000;
@@ -812,7 +824,21 @@ export const getMyTripCount = query({
       })
     ).size;
 
+    // Note: we can't write to the cache from a query, so the first read
+    // stays expensive. A backfill mutation (recalculateMyTripStats) can
+    // be run to warm the cache for existing users.
     return { trips: trips.length, days };
+  },
+});
+
+export const recalculateMyTripStats = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+    const trips = await getAllUserTrips(ctx, identity.subject);
+    await recalculateUserTripStats(ctx, identity.subject, trips);
+    return { trip_count: trips.length };
   },
 });
 
@@ -984,6 +1010,7 @@ export const logTrip = mutation({
     });
 
     await saveRouteDetails(ctx, tripId, identity.subject, { full_route, ridden_route });
+    await incrementUserTripStats(ctx, identity.subject, args.service_date);
 
     return tripId;
   },
@@ -1059,6 +1086,10 @@ export const updateTrip = mutation({
       first_units,
       coupling_events,
     });
+
+    if (existingTrip.service_date !== args.service_date) {
+      await moveUserTripStatsDay(ctx, identity.subject, existingTrip.service_date, args.service_date);
+    }
   },
 });
 
@@ -1088,6 +1119,18 @@ export const deleteTrip = mutation({
       await ctx.db.delete(routeDetails._id);
     }
 
+    // Clean up participations and their cached stats
+    const participations = await ctx.db
+      .query("tripParticipants")
+      .withIndex("by_tripId_user", (q) => q.eq("tripId", args.tripId))
+      .collect();
+
+    for (const p of participations) {
+      await decrementUserTripStats(ctx, p.user, existingTrip.service_date);
+      await ctx.db.delete(p._id);
+    }
+
+    await decrementUserTripStats(ctx, existingTrip.user, existingTrip.service_date);
     await ctx.db.delete(args.tripId);
 
     return args.tripId;

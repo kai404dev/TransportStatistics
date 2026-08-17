@@ -26,6 +26,7 @@ import type * as functions_tflStops from "../functions/tflStops.js";
 import type * as functions_trains from "../functions/trains.js";
 import type * as functions_trips from "../functions/trips.js";
 import type * as functions_userSettings from "../functions/userSettings.js";
+import type * as functions_userTripStats from "../functions/userTripStats.js";
 import type * as functions_userTrips from "../functions/userTrips.js";
 import type * as functions_users from "../functions/users.js";
 import type * as functions_vehicles from "../functions/vehicles.js";
@@ -55,6 +56,7 @@ declare const fullApi: ApiFromModules<{
   "functions/trains": typeof functions_trains;
   "functions/trips": typeof functions_trips;
   "functions/userSettings": typeof functions_userSettings;
+  "functions/userTripStats": typeof functions_userTripStats;
   "functions/userTrips": typeof functions_userTrips;
   "functions/users": typeof functions_users;
   "functions/vehicles": typeof functions_vehicles;

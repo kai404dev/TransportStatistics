@@ -5,12 +5,8 @@ export function RouteRow({ route }: { route: RouteInfo }) {
   return (
     <div
       className={`
-        group relative flex items-center gap-3 sm:gap-4 px-3 sm:px-5 py-3 sm:py-3.5
-        rounded-2xl border transition-all duration-150
-        ${route.withdrawn
-          ? "bg-ts-surface border-white/[0.04] opacity-55 hover:opacity-75"
-          : "bg-ts-surface border-white/[0.06] hover:bg-ts-surface-2 hover:border-white/[0.10]"
-        }
+        group relative flex items-center gap-2 sm:gap-2 px-2 sm:px-2 py-2 sm:py-2
+        rounded-2xl transition-all duration-150
       `}
     >
       {/* Service number badge — fixed width so it never squishes */}

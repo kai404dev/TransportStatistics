@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { FriendRequestButton } from "@/components/FriendRequestButton";
 import { ProfileVisibilitySelector } from "@/components/ProfileVisibilitySelector";
+import { useRequireAuth } from "@/components/AuthGate";
 
 type Tab = "friends" | "incoming" | "outgoing" | "search";
 
@@ -20,12 +21,21 @@ export default function FriendsPage() {
   const [activeTab, setActiveTab] = useState<Tab>("friends");
   const [searchQuery, setSearchQuery] = useState("");
 
-  const friends = useQuery(api.functions.friends.getMyFriends);
-  const incoming = useQuery(api.functions.friends.getIncomingRequests);
-  const outgoing = useQuery(api.functions.friends.getOutgoingRequests);
+  const friends = useQuery(
+    api.functions.friends.getMyFriends,
+    isSignedIn ? undefined : "skip",
+  );
+  const incoming = useQuery(
+    api.functions.friends.getIncomingRequests,
+    isSignedIn ? undefined : "skip",
+  );
+  const outgoing = useQuery(
+    api.functions.friends.getOutgoingRequests,
+    isSignedIn ? undefined : "skip",
+  );
   const searchResults = useQuery(
     api.functions.friends.searchUsers,
-    searchQuery.trim().length >= 2 ? { query: searchQuery } : "skip",
+    isSignedIn && searchQuery.trim().length >= 2 ? { query: searchQuery } : "skip",
   );
 
   const acceptRequest = useMutation(api.functions.friends.acceptFriendRequest);
@@ -41,13 +51,8 @@ export default function FriendsPage() {
     { key: "search", label: "Search", icon: Search },
   ];
 
-  if (!isSignedIn) {
-    return (
-      <div className="max-w-4xl mx-auto p-4 md:p-8">
-        <div className="text-center py-10 text-slate-400">Please sign in to manage friends.</div>
-      </div>
-    );
-  }
+  const auth = useRequireAuth();
+  if (auth) return auth;
 
   const incomingCount = incoming?.length ?? 0;
 

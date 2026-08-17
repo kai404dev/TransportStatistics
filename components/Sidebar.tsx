@@ -609,7 +609,7 @@ export default function Sidebar() {
 
         {/* Footer */}
         <div className="p-2 border-t border-ts-border-soft flex-shrink-0">
-          <div className="mb-2 rounded-[8px] border border-ts-border-soft bg-ts-surface-2 p-1">
+          <div className="mb-2 rounded-[8px] p-1">
             <div className={`px-2 pb-1 text-[9.5px] font-bold tracking-[0.09em] text-ts-text-3 ${isCollapsed ? "text-center" : ""}`}>
               {!isCollapsed ? "Theme" : ""}
             </div>
