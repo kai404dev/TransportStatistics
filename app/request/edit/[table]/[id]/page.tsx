@@ -6,6 +6,7 @@ import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { editConfig } from '@/lib/editConfig';
 import { RelationDropdown } from '@/components/admin/RelationDropdown'; // Import the dropdown handler
+import { useRequireAuth } from '@/components/AuthGate';
 import { LoaderCircle, CheckCircle } from 'lucide-react';
 
 export default function UserEditRequestPage() {
@@ -32,6 +33,9 @@ export default function UserEditRequestPage() {
       setFormData(initialFields);
     }
   }, [currentRecord, config]);
+
+  const auth = useRequireAuth();
+  if (auth) return auth;
 
   if (!config) return <div className="p-8 text-ts-danger font-bold">Error: Table type not configured for user edits.</div>;
   if (currentRecord === undefined) return <div className="flex justify-center p-12"><LoaderCircle className="animate-spin text-ts-accent" /></div>;

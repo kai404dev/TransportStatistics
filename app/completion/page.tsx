@@ -1,3 +1,4 @@
+import { auth } from "@clerk/nextjs/server";
 import CompletionClient from "./CompletionClient";
 
 type CompletionPageProps = {
@@ -9,6 +10,9 @@ type CompletionPageProps = {
 };
 
 export default async function CompletionPage({ searchParams }: CompletionPageProps) {
+  const { userId, redirectToSignIn } = await auth();
+  if (!userId) return redirectToSignIn();
+
   const params = (await searchParams) ?? {};
 
   return (

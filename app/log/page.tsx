@@ -6,7 +6,7 @@ import { useEffect, useState, useRef, useSyncExternalStore, type FormEvent, type
 import { useConvexAuth } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { LogMap } from '@/components/LogMap';
-import { SignInButton, useUser } from '@clerk/nextjs';
+import { useRequireAuth } from '@/components/AuthGate';
 import {
   AlertCircle,
   Bus,
@@ -616,7 +616,6 @@ function SegmentedControl({ options, value, onChange }: { options: string[]; val
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 export default function LogPage() {
-  const { isSignedIn } = useUser();
   const { isAuthenticated, isLoading: isConvexAuthLoading } = useConvexAuth();
   const logTrip = useMutation(api.functions.trips.logTrip);
   const updateTrip = useMutation(api.functions.trips.updateTrip);
@@ -2196,6 +2195,9 @@ export default function LogPage() {
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
+  const auth = useRequireAuth();
+  if (auth) return auth;
+
   return (
     <div className="flex min-h-svh flex-col bg-ts-bg transition-colors duration-300">
       {/* Sticky header + tabs */}
@@ -2217,14 +2219,7 @@ export default function LogPage() {
                 <div className="flex shrink-0 flex-wrap items-center gap-2">
                   {saveSuccess && <span className="text-xs font-semibold text-ts-accent sm:hidden">{saveSuccess}</span>}
                   {saveError && <span className="max-w-[200px] truncate text-xs text-red-300">{saveError}</span>}
-                  {!isSignedIn && (
-                    <SignInButton mode="modal">
-                      <button type="button" className="rounded-full border border-ts-border px-3 py-2 text-xs font-semibold text-ts-text-2 transition hover:border-ts-accent hover:text-ts-accent active:scale-95">
-                        Sign in
-                      </button>
-                    </SignInButton>
-                  )}
-                  {isSignedIn && !isConvexAuthLoading && !isAuthenticated && (
+                  {!isConvexAuthLoading && !isAuthenticated && (
                     <span className="text-xs text-amber-400">Auth not connected</span>
                   )}
                   <button

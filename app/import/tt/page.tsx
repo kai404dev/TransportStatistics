@@ -20,6 +20,7 @@ import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { getMapStyleUrl } from '@/components/mapStyleUrl';
 import { useTheme } from '@/components/ThemeProvider';
+import { useRequireAuth } from '@/components/AuthGate';
 import { api } from '@/convex/_generated/api';
 import type { InternalTrip, InternalUnit, FieldMapping, MappingPreset, TransformResult } from '@/lib/tt-import/types';
 import { parseTTFile, flattenTTKeys, getFieldValue, getCurrentValue, findField, stripPrefix, displayPath } from '@/lib/tt-import/parser';
@@ -508,6 +509,9 @@ export default function TTImportPage() {
       setSaveResult(err instanceof Error ? err.message : 'Failed to save trip');
     } finally { setSaving(false); }
   }, [transformResult, logTrip]);
+
+  const auth = useRequireAuth();
+  if (auth) return auth;
 
   if (!rawData) {
     return (

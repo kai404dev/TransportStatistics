@@ -13,9 +13,10 @@ export default async function TripDetailsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const { userId } = await auth();
+  const { userId, redirectToSignIn } = await auth();
 
-  if (!userId || !id) notFound();
+  if (!userId) return redirectToSignIn();
+  if (!id) notFound();
 
   // Try fetching as owner first
   let tripData = await convex.query(api.functions.trips.getTripDetailsById, {

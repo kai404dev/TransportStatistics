@@ -6,6 +6,7 @@ import Link from "next/link";
 import { use, useMemo, useEffect, useRef } from "react";
 import { TripRow } from "@/components/TripRow";
 import { FriendRequestButton } from "@/components/FriendRequestButton";
+import { useRequireAuth } from "@/components/AuthGate";
 import { ArrowLeft, Lock, Users } from "lucide-react";
 
 type TripGroup = {
@@ -123,6 +124,9 @@ export default function UserProfilePage({
 
     return [...groups.values()];
   }, [trips]);
+
+  const auth = useRequireAuth();
+  if (auth) return auth;
 
   if (!currentUser) {
     return (
