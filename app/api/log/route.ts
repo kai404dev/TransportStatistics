@@ -454,7 +454,7 @@ async function handleBusRequest(uid: string, date: string, debug: boolean, busti
   log(`Processing bus trip: ${uid} for ${date}`);
 
   try {
-    // Always fetch the trip directly — this is the source of truth for stops + track
+    // Always fetch the trip directly — this is the source of truth for stops + track (scheduled/intended)
     const tripGeomRes = await fetch(buildBustimesUrl(bustimesBaseUrl, `/api/trips/${uid}/`));
     if (!tripGeomRes.ok) {
       return NextResponse.json({ error: 'Bus trip not found on bustimes.org' }, { status: 404 });
@@ -462,10 +462,14 @@ async function handleBusRequest(uid: string, date: string, debug: boolean, busti
     const geomData = await tripGeomRes.json();
     const geomTimes: any[] = geomData?.times ?? [];
 
-    // Journey lookup is best-effort — only needed for realtime + vehicle data
+    // Journey lookup via trip+date — per user spec, this resolves the vehicle journey ID
+    // e.g. https://bustimes.org/api/vehiclejourneys/?vehicle=&service=&trip=644171025&source=&datetime=&date=2026-08-24
     let journeyLookupData: any = null;
     let tripData: any = null;
     let vehicleDetails: any = null;
+    let resolvedJourneyId: number | null = null;
+    let rawPolyline: string | null = null;
+    let actualGeometry: { type: string; coordinates: [number, number][] } | null = null;
 
     const journeyLookupRes = await fetch(
       buildBustimesUrl(bustimesBaseUrl, `/api/vehiclejourneys/?vehicle=&service=&trip=${uid}&source=&datetime=&date=${date}`)
@@ -474,12 +478,16 @@ async function handleBusRequest(uid: string, date: string, debug: boolean, busti
     if (journeyLookupRes.ok) {
       journeyLookupData = await journeyLookupRes.json();
       const journeyId = journeyLookupData?.results?.[0]?.id;
-
       if (journeyId) {
+        resolvedJourneyId = typeof journeyId === 'number' ? journeyId : Number(journeyId);
         const journeyDetailsRes = await fetch(buildBustimesUrl(bustimesBaseUrl, `/api/vehiclejourneys/${journeyId}/details/`));
         if (journeyDetailsRes.ok) {
           tripData = await journeyDetailsRes.json();
-
+          rawPolyline = tripData?.time_aware_polyline ?? null;
+          if (rawPolyline) {
+            const coords = decodeTimeAwarePolyline(rawPolyline);
+            if (coords.length > 0) actualGeometry = { type: "LineString", coordinates: coords };
+          }
           const vehicleStub = tripData?.vehicle ?? tripData?.trip?.vehicle ?? null;
           if (vehicleStub?.id) {
             const vDetailsRes = await fetch(buildBustimesUrl(bustimesBaseUrl, `/api/vehicles/${vehicleStub.id}/`));
@@ -540,31 +548,81 @@ async function handleBusRequest(uid: string, date: string, debug: boolean, busti
       };
     });
 
+    // Scheduled (intended) geometry from trip's track data
+    const scheduledTrackCoords = geomTimes
+      .filter((t: any) => t.track && Array.isArray(t.track))
+      .flatMap((t: any) => t.track);
+    let scheduledGeometry: { type: string; coordinates: [number, number][] } | null = null;
+    if (scheduledTrackCoords.length > 0) {
+      scheduledGeometry = { type: "LineString", coordinates: scheduledTrackCoords as [number, number][] };
+    } else {
+      const stitched: [number, number][] = [];
+      let lastLoc: [number, number] | null = null;
+      for (const t of geomTimes) {
+        const loc = t.stop?.location;
+        const hasTrack = Array.isArray(t.track) && t.track.length > 0;
+        if (hasTrack) { stitched.push(...t.track); lastLoc = t.track[t.track.length-1] ?? null; }
+        else if (Array.isArray(loc) && loc.length >= 2) {
+          const pt: [number, number] = [loc[0], loc[1]];
+          if (lastLoc) stitched.push(lastLoc, pt);
+          lastLoc = pt;
+        }
+      }
+      if (stitched.length > 1) scheduledGeometry = { type: "LineString", coordinates: stitched };
+    }
+
+    // For backward compat, stitchedGeometry is the combined fallback; but prefer scheduled
     const stitchedCoords: [number, number][] = [];
-    let lastLoc: [number, number] | null = null;
+    let lastLoc2: [number, number] | null = null;
     for (const t of stops) {
       const loc = t.stop?.location;
       const hasTrack = Array.isArray(t.track) && t.track.length > 0;
       if (hasTrack) {
         stitchedCoords.push(...t.track);
-        lastLoc = t.track[t.track.length - 1] ?? null;
+        lastLoc2 = t.track[t.track.length - 1] ?? null;
       } else if (Array.isArray(loc) && loc.length >= 2) {
         const point: [number, number] = [loc[0], loc[1]];
-        if (lastLoc) stitchedCoords.push(lastLoc, point);
-        lastLoc = point;
+        if (lastLoc2) stitchedCoords.push(lastLoc2, point);
+        lastLoc2 = point;
       }
     }
     const stitchedGeometry = stitchedCoords.length > 1
       ? { type: "LineString", coordinates: stitchedCoords }
       : null;
 
-    const responsePayload = {
+    const fullRouteGeometry = scheduledGeometry ?? stitchedGeometry ?? null;
+
+    // Polyline path for frontend ridden-route clipping is the actual GPS when available
+    const polylinePath = actualGeometry?.coordinates ?? null;
+
+    // Build scheduled/actual route arrays for saving (bus-only actual tracking)
+    const scheduled_route = geomTimes.map((time: any, index: number) => {
+      const uniqueId = `scheduled-${uid}-${date}-${time.stop.atco_code ?? index}`;
+      return {
+        id: hashStringToNumber(uniqueId),
+        stop: { stop_code: time.stop.atco_code, name: time.stop.name, location: time.stop.location, bearing: null, icon: null },
+        scheduled_arrival: time?.aimed_arrival_time ?? null,
+        scheduled_departure: time?.aimed_departure_time ?? null,
+        actual_arrival: null,
+        actual_departure: null,
+        track: time.track ?? null,
+        timing_status: time.timing_status || "scheduled",
+        pick_up: time.pick_up ?? true, set_down: time.set_down ?? true,
+      };
+    });
+
+    const tripIdNum = Number(uid);
+
+    const responsePayload: Record<string, any> = {
       service_number: geomData?.service?.line_name ?? trip?.service?.line_name ?? "Unknown",
       operator: geomData?.operator?.name ?? trip?.operator?.name ?? "Unknown Operator",
       operator_slug: geomData?.operator?.slug ?? geomData?.operator?.noc?.toLowerCase?.() ?? "unknown",
       service_date: dateToTimestamp(date),
       bustimes_service_id: typeof geomData?.service?.id === "number" ? geomData.service.id : undefined,
       bustimes_service_slug: geomData?.service?.slug ?? undefined,
+      bustimes_trip_id: Number.isFinite(tripIdNum) ? tripIdNum : undefined,
+      vehicle_journey_id: resolvedJourneyId ?? undefined,
+      time_aware_polyline: rawPolyline ?? undefined,
       origin_name: firstStop?.stop?.name ?? "Unknown Origin",
       origin_stop_code: firstStop?.stop?.atco_code ?? null,
       destination_name: geomData?.headsign ?? lastStop?.stop?.name ?? "Unknown",
@@ -573,9 +631,15 @@ async function handleBusRequest(uid: string, date: string, debug: boolean, busti
       actual_departure: getActualDeparture(firstStop),
       scheduled_arrival: getAimedArrival(lastStop),
       actual_arrival: getActualArrival(lastStop),
-      full_route_geometry: stitchedGeometry,
+      full_route_geometry: fullRouteGeometry,
+      scheduled_geometry: scheduledGeometry,
+      actual_geometry: actualGeometry,
+      polyline_path: polylinePath,
       full_locations: full_route,
       full_route: full_route,
+      scheduled_route: scheduled_route.length > 0 ? scheduled_route : undefined,
+      actual_route: full_route, // actual per-stop times are on full_route when journey details were found
+      available_journeys: Array.isArray(journeyLookupData?.results) ? journeyLookupData.results.map((r: any) => ({ id: r.id, datetime: r.datetime, vehicle: r.vehicle, route_name: r.route_name, destination: r.destination, trip_id: r.trip_id })) : undefined,
       unit: vehicleDetails ? {
         "0": {
           unit_number: vehicleDetails.fleet_code || vehicleDetails.fleet_number || null,
@@ -622,16 +686,23 @@ async function handleJourneyRequest(
   const tripId = trip?.id ?? journeyData?.trip_id;
   let times: any[] = trip?.times ?? [];
 
-  let geomTimes: any[] = [];
+  // Fetch scheduled trip data (intended route) separately so we can store both.
+  let scheduledTimes: any[] = [];
+  let scheduledServiceMeta: any = null;
   if (tripId) {
     const tripGeomRes = await fetch(buildBustimesUrl(bustimesBaseUrl, `/api/trips/${tripId}/`));
     if (tripGeomRes.ok) {
       const geomData = await tripGeomRes.json();
-      geomTimes = geomData?.times ?? [];
+      scheduledTimes = geomData?.times ?? [];
+      scheduledServiceMeta = geomData ?? null;
     }
   }
 
-  if (times.length === 0) {
+  // Journey times are the per-stop schedule+actuals from the vehicle journey itself.
+  // Use scheduledTimes as primary if available, otherwise journey times.
+  const timesForFallback = scheduledTimes.length > 0 ? scheduledTimes : times;
+
+  if (times.length === 0 && scheduledTimes.length === 0) {
     const serviceId = trip?.service?.id ?? journeyData?.service?.id;
     if (serviceId) {
       const svcRes = await fetch(
@@ -641,7 +712,7 @@ async function handleJourneyRequest(
         const svcData = await svcRes.json();
         const features = svcData?.stops?.features;
         if (Array.isArray(features) && features.length > 0) {
-          times = features.map((feature: any, index: number) => ({
+          const svcTimes = features.map((feature: any, index: number) => ({
             stop: {
               atco_code: feature.properties?.url?.replace("/stops/", "") ?? `svc-${index}`,
               name: feature.properties?.name ?? "Unknown",
@@ -658,12 +729,16 @@ async function handleJourneyRequest(
             pick_up: true,
             set_down: true,
           }));
+          times = svcTimes;
+          if (scheduledTimes.length === 0) scheduledTimes = svcTimes;
         }
       }
     }
   }
 
-  if (times.length === 0) {
+  // Ensure we have at least some times to build stops from.
+  const effectiveTimes = times.length > 0 ? times : scheduledTimes;
+  if (effectiveTimes.length === 0) {
     return NextResponse.json({ error: 'No stop data in journey' }, { status: 404 });
   }
 
@@ -674,30 +749,31 @@ async function handleJourneyRequest(
     if (vRes.ok) vehicleDetails = await vRes.json();
   }
 
-  let fullRouteGeometry: { type: string; coordinates: [number, number][] } | null = null;
+  // ── Actual geometry: the time_aware_polyline is the vehicle's actual GPS trace.
+  let actualGeometry: { type: string; coordinates: [number, number][] } | null = null;
   let polylinePath: [number, number][] | null = null;
-
-  if (journeyData?.time_aware_polyline) {
-    const coords = decodeTimeAwarePolyline(journeyData.time_aware_polyline);
+  const rawPolyline: string | null = journeyData?.time_aware_polyline ?? null;
+  if (rawPolyline) {
+    const coords = decodeTimeAwarePolyline(rawPolyline);
     if (coords.length > 0) {
       polylinePath = coords;
-      fullRouteGeometry = { type: "LineString", coordinates: coords };
+      actualGeometry = { type: "LineString", coordinates: coords };
     }
   }
 
-  if (!fullRouteGeometry) {
-    const trackCoords = geomTimes
-      .filter((t: any) => t.track && Array.isArray(t.track))
-      .flatMap((t: any) => t.track);
-    if (trackCoords.length > 0) {
-      fullRouteGeometry = { type: "LineString", coordinates: trackCoords as [number, number][] };
-    }
+  // ── Scheduled geometry: the intended route from the trip's track data.
+  let scheduledGeometry: { type: string; coordinates: [number, number][] } | null = null;
+  const scheduledTrackCoords = scheduledTimes
+    .filter((t: any) => t.track && Array.isArray(t.track))
+    .flatMap((t: any) => t.track);
+  if (scheduledTrackCoords.length > 0) {
+    scheduledGeometry = { type: "LineString", coordinates: scheduledTrackCoords as [number, number][] };
   }
-
-  if (!fullRouteGeometry) {
+  if (!scheduledGeometry) {
     const interleaved: [number, number][] = [];
     let lastLoc: [number, number] | null = null;
-    for (const t of times) {
+    const sourceForGeom = scheduledTimes.length > 0 ? scheduledTimes : effectiveTimes;
+    for (const t of sourceForGeom) {
       const loc = t.stop?.location;
       const hasTrack = Array.isArray(t.track) && t.track.length > 0;
       if (hasTrack) {
@@ -710,9 +786,12 @@ async function handleJourneyRequest(
       }
     }
     if (interleaved.length > 1) {
-      fullRouteGeometry = { type: "LineString", coordinates: interleaved };
+      scheduledGeometry = { type: "LineString", coordinates: interleaved };
     }
   }
+
+  // For backward compat, fullRouteGeometry prefers scheduled, falls back to actual.
+  const fullRouteGeometry = scheduledGeometry ?? actualGeometry ?? null;
 
   const resolvedDate = date || journeyData?.date || journeyData?.datetime?.split("T")[0] || "";
 
@@ -723,33 +802,42 @@ async function handleJourneyRequest(
   const getActualDeparture = (time: any) =>
     time?.actual_departure_time ?? time?.expected_departure_time ?? null;
 
-  const full_route = times.map((time: any, index: number) => {
-    const isFirst = index === 0;
-    const track = !isFirst && time.track?.length > 0 ? time.track : null;
-    const uniqueId = `journey-${journeyId}-${time.stop.atco_code ?? index}`;
+  // Helpers to map a times array to RouteStop[]
+  const mapTimes = (source: any[], prefix: string) =>
+    source.map((time: any, index: number) => {
+      const isFirst = index === 0;
+      const track = !isFirst && time.track?.length > 0 ? time.track : null;
+      const uniqueId = `${prefix}-${journeyId}-${time.stop.atco_code ?? index}`;
+      return {
+        id: hashStringToNumber(uniqueId),
+        stop: {
+          stop_code: time.stop.atco_code,
+          name: time.stop.name,
+          location: time.stop.location,
+          bearing: time.stop.bearing ?? null,
+          icon: time.stop.icon ?? null,
+        },
+        scheduled_arrival: getAimedArrival(time),
+        scheduled_departure: getAimedDeparture(time),
+        actual_arrival: getActualArrival(time),
+        actual_departure: getActualDeparture(time),
+        track,
+        timing_status: time.timing_status || "scheduled",
+        pick_up: time.pick_up ?? true,
+        set_down: time.set_down ?? true,
+      };
+    });
 
-    return {
-      id: hashStringToNumber(uniqueId),
-      stop: {
-        stop_code: time.stop.atco_code,
-        name: time.stop.name,
-        location: time.stop.location,
-        bearing: time.stop.bearing ?? null,
-        icon: time.stop.icon ?? null,
-      },
-      scheduled_arrival: getAimedArrival(time),
-      scheduled_departure: getAimedDeparture(time),
-      actual_arrival: getActualArrival(time),
-      actual_departure: getActualDeparture(time),
-      track,
-      timing_status: time.timing_status || "scheduled",
-      pick_up: time.pick_up ?? true,
-      set_down: time.set_down ?? true,
-    };
-  });
+  // full_route stays as before (from journey times) for backward compat.
+  const full_route = mapTimes(effectiveTimes, "journey");
+  // scheduled_route: the intended stops/geometry from the trip endpoint.
+  const scheduled_route = scheduledTimes.length > 0 ? mapTimes(scheduledTimes, "scheduled") : full_route;
+  // actual_route: if time_aware polyline exists we still have per-stop actual times on journey times,
+  // so expose journey times as actual_route for completeness.
+  const actual_route = mapTimes(effectiveTimes, "actual");
 
-  const firstStop = times[0];
-  const lastStop = times[times.length - 1];
+  const firstStop = effectiveTimes[0];
+  const lastStop = effectiveTimes[effectiveTimes.length - 1];
   const vehicleUnit = vehicleDetails
     ? {
         "0": {
@@ -772,6 +860,8 @@ async function handleJourneyRequest(
       }
     : null;
 
+  const bustimesTripIdNum = typeof tripId === 'number' ? tripId : (tripId ? Number(tripId) : undefined);
+  const vehicleJourneyIdNum = Number(journeyId);
   return NextResponse.json({
     service_number: trip?.service?.line_name ?? journeyData?.route_name ?? "Unknown",
     operator: trip?.operator?.name ?? "Unknown Operator",
@@ -779,6 +869,9 @@ async function handleJourneyRequest(
     service_date: dateToTimestamp(resolvedDate),
     bustimes_service_id: trip?.service?.id ?? journeyData?.service?.id,
     bustimes_service_slug: trip?.service?.slug ?? journeyData?.service?.slug,
+    bustimes_trip_id: Number.isFinite(bustimesTripIdNum as number) ? (bustimesTripIdNum as number) : undefined,
+    vehicle_journey_id: Number.isFinite(vehicleJourneyIdNum) ? vehicleJourneyIdNum : undefined,
+    time_aware_polyline: rawPolyline ?? undefined,
     origin_name: firstStop?.stop?.name ?? "Unknown Origin",
     origin_stop_code: firstStop?.stop?.atco_code ?? null,
     destination_name: journeyData?.destination ?? lastStop?.stop?.name ?? "Unknown",
@@ -787,10 +880,15 @@ async function handleJourneyRequest(
     actual_departure: getActualDeparture(firstStop),
     scheduled_arrival: getAimedArrival(lastStop),
     actual_arrival: getActualArrival(lastStop),
+    // Backward compat
     full_route_geometry: fullRouteGeometry,
+    scheduled_geometry: scheduledGeometry,
+    actual_geometry: actualGeometry,
     polyline_path: polylinePath,
     full_locations: full_route,
     full_route: full_route,
+    scheduled_route,
+    actual_route,
     unit: vehicleUnit,
     debug: debug
       ? {

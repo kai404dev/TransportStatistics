@@ -119,6 +119,13 @@ type TripDetailsData = {
     full_route?: RoutePayload | null;
     ridden_route?: RoutePayload | null;
     full_locations?: RouteStopLike[] | null;
+    vehicle_journey_id?: number;
+    bustimes_trip_id?: number;
+    time_aware_polyline?: string;
+    scheduled_geometry?: RouteGeometry | null;
+    actual_geometry?: RouteGeometry | null;
+    scheduled_route?: RouteStopLike[] | RoutePayload | null;
+    actual_route?: RouteStopLike[] | RoutePayload | null;
     units?: UnitInfo[];
     unit_number?: string;
     unit_reg?: string;
@@ -377,13 +384,32 @@ export function TripDetailsClient({ data, isOwner = true }: Props) {
 
   const fullCoordinates = useMemo(() => extractCoordinates(trip.full_route), [trip.full_route]);
   const riddenCoordinates = useMemo(() => extractCoordinates(trip.ridden_route), [trip.ridden_route]);
+  const scheduledCoordinates = useMemo(() => {
+    const c = extractCoordinates(trip.scheduled_geometry as RoutePayload | null);
+    if (c.length > 0) return c;
+    const sr = trip.scheduled_route as unknown;
+    if (Array.isArray(sr)) return [];
+    return extractCoordinates(sr as RoutePayload | null);
+  }, [trip.scheduled_geometry, trip.scheduled_route]);
+  const actualCoordinates = useMemo(() => {
+    const c = extractCoordinates(trip.actual_geometry as RoutePayload | null);
+    if (c.length > 0) return c;
+    return [];
+  }, [trip.actual_geometry]);
+  const hasActualTracking = Boolean(trip.vehicle_journey_id || trip.time_aware_polyline || actualCoordinates.length > 0);
   const routeStops = useMemo(() => {
     const riddenStops = extractStops(trip.ridden_route);
     if (riddenStops.length > 0) return riddenStops;
     const fullStops = extractStops(trip.full_route);
     if (fullStops.length > 0) return fullStops;
+    const schedStops = (() => {
+      const v = trip.scheduled_route as unknown;
+      if (Array.isArray(v)) return v as RouteStopLike[];
+      return extractStops(v as RoutePayload | null);
+    })();
+    if (schedStops.length > 0) return schedStops;
     return Array.isArray(trip.full_locations) ? trip.full_locations : [];
-  }, [trip.full_locations, trip.full_route, trip.ridden_route]);
+  }, [trip.full_locations, trip.full_route, trip.ridden_route, trip.scheduled_route]);
 
   const originCoord = useMemo(
     () => getStopCoordinates(routeStops[0], data.originStop),
@@ -459,13 +485,13 @@ export function TripDetailsClient({ data, isOwner = true }: Props) {
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
-    const hasMapData = riddenCoordinates.length > 1 || fullCoordinates.length > 1;
+    const hasMapData = riddenCoordinates.length > 1 || fullCoordinates.length > 1 || actualCoordinates.length > 1 || scheduledCoordinates.length > 1;
     if (!hasMapData) return;
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
       style: getMapStyleUrl(theme),
-      center: riddenCoordinates[0] ?? fullCoordinates[0] ?? [-1.5, 52.5],
+      center: riddenCoordinates[0] ?? fullCoordinates[0] ?? scheduledCoordinates[0] ?? actualCoordinates[0] ?? [-1.5, 52.5],
       zoom: 11,
     });
 
@@ -477,20 +503,46 @@ export function TripDetailsClient({ data, isOwner = true }: Props) {
         geometry:
           | { type: 'LineString'; coordinates: [number, number][] }
           | { type: 'Point'; coordinates: [number, number] };
-        properties: { kind: 'full' | 'ridden' | 'origin' | 'destination' };
+        properties: { kind: 'full' | 'ridden' | 'scheduled' | 'actual' | 'origin' | 'destination' };
       };
 
       const features: RouteFeature[] = [];
       const bounds = new maplibregl.LngLatBounds();
 
-      if (fullCoordinates.length > 1) {
-        features.push({
-          type: 'Feature',
-          geometry: { type: 'LineString', coordinates: fullCoordinates },
-          properties: { kind: 'full' },
-        });
-
-        fullCoordinates.forEach((coord) => bounds.extend(coord));
+      // When bus has actual tracking, prefer scheduled/actual over generic full
+      if (hasActualTracking) {
+        if (scheduledCoordinates.length > 1) {
+          features.push({
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: scheduledCoordinates },
+            properties: { kind: 'scheduled' },
+          });
+          scheduledCoordinates.forEach((coord) => bounds.extend(coord));
+        } else if (fullCoordinates.length > 1) {
+          features.push({
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: fullCoordinates },
+            properties: { kind: 'scheduled' },
+          });
+          fullCoordinates.forEach((coord) => bounds.extend(coord));
+        }
+        if (actualCoordinates.length > 1) {
+          features.push({
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: actualCoordinates },
+            properties: { kind: 'actual' },
+          });
+          actualCoordinates.forEach((coord) => bounds.extend(coord));
+        }
+      } else {
+        if (fullCoordinates.length > 1) {
+          features.push({
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: fullCoordinates },
+            properties: { kind: 'full' },
+          });
+          fullCoordinates.forEach((coord) => bounds.extend(coord));
+        }
       }
 
       if (riddenCoordinates.length > 1) {
@@ -538,6 +590,35 @@ export function TripDetailsClient({ data, isOwner = true }: Props) {
           'line-color': '#64748b',
           'line-width': 4,
           'line-opacity': 0.35,
+        },
+      });
+
+      // Scheduled (intended) route — faint green/gray
+      map.addLayer({
+        id: 'scheduled-route',
+        type: 'line',
+        source: 'trip-route',
+        filter: ['==', ['get', 'kind'], 'scheduled'],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': '#22c55e',
+          'line-width': 4,
+          'line-opacity': 0.45,
+        },
+      });
+
+      // Actual GPS trace from time_aware_polyline — orange dashed
+      map.addLayer({
+        id: 'actual-route',
+        type: 'line',
+        source: 'trip-route',
+        filter: ['==', ['get', 'kind'], 'actual'],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': '#f97316',
+          'line-width': 4,
+          'line-opacity': 0.9,
+          'line-dasharray': [2, 2],
         },
       });
 
@@ -589,7 +670,7 @@ export function TripDetailsClient({ data, isOwner = true }: Props) {
       map.remove();
       mapRef.current = null;
     };
-  }, [destinationCoord, fullCoordinates, originCoord, riddenCoordinates, theme]);
+  }, [destinationCoord, fullCoordinates, originCoord, riddenCoordinates, scheduledCoordinates, actualCoordinates, hasActualTracking, theme]);
 
   const routeTitle = `${trip.origin_name} → ${trip.destination_name}`;
 
@@ -712,11 +793,31 @@ export function TripDetailsClient({ data, isOwner = true }: Props) {
       <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
         <div className="space-y-6">
           <SectionCard title="Map" icon={<MapPinned className="h-4 w-4" />}>
-            {fullCoordinates.length > 1 || riddenCoordinates.length > 1 ? (
+            {fullCoordinates.length > 1 || riddenCoordinates.length > 1 || scheduledCoordinates.length > 1 || actualCoordinates.length > 1 ? (
               <div className="space-y-3">
                 <div className="h-[500px] overflow-hidden rounded-2xl border border-ts-border bg-ts-bg">
                   <div ref={mapContainerRef} className="h-full w-full rounded-2xl" />
                 </div>
+                {hasActualTracking ? (
+                  <div className="flex flex-wrap gap-3 text-xs text-ts-text-3 px-1">
+                    <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-5 rounded-full bg-emerald-500/70 inline-block" /> Scheduled (intended) route</span>
+                    <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-5 rounded-full bg-orange-500 inline-block" style={{background: 'repeating-linear-gradient(90deg,#f97316 0 4px, transparent 4px 8px)'}} /> Actual GPS trace</span>
+                    <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-5 rounded-full bg-blue-500 inline-block" /> Ridden section</span>
+                  </div>
+                ) : null}
+                {hasActualTracking && trip.vehicle_journey_id ? (
+                  <div className="text-[11px] font-mono text-ts-text-3 px-1">
+                    Journey {trip.vehicle_journey_id} {trip.bustimes_trip_id ? `· Trip ${trip.bustimes_trip_id}` : ''} · {actualCoordinates.length} pts ·{' '}
+                    <a
+                      href={`https://bustimes.org/vehiclejourneys/${trip.vehicle_journey_id}/details/`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline hover:text-ts-accent"
+                    >
+                      bustimes.org
+                    </a>
+                  </div>
+                ) : null}
               </div>
             ) : (
               <div className="rounded-2xl border border-dashed border-ts-border p-4 text-sm text-ts-text-3">

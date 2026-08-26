@@ -10,6 +10,7 @@
 
 import type * as crons from "../crons.js";
 import type * as functions_admin from "../functions/admin.js";
+import type * as functions_airports from "../functions/airports.js";
 import type * as functions_completion from "../functions/completion.js";
 import type * as functions_delete_stop_of_type from "../functions/delete_stop_of_type.js";
 import type * as functions_editRequests from "../functions/editRequests.js";
@@ -40,6 +41,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   crons: typeof crons;
   "functions/admin": typeof functions_admin;
+  "functions/airports": typeof functions_airports;
   "functions/completion": typeof functions_completion;
   "functions/delete_stop_of_type": typeof functions_delete_stop_of_type;
   "functions/editRequests": typeof functions_editRequests;

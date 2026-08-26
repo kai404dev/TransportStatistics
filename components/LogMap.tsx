@@ -34,6 +34,7 @@ type LogMapProps = {
   fullRoute: RouteStop[];
   fullGeometry: Geometry;
   highlightedGeometry: Geometry;
+  actualGeometry?: Geometry | null;
   onStopClick: (id: number) => void;
   fromStopId: number | null;
   toStopId: number | null;
@@ -62,7 +63,7 @@ const emptyLineFeature = {
 const DRAG_PX_THRESHOLD = 4;
 
 export const LogMap = forwardRef<LogMapHandle, LogMapProps>(function LogMap(
-  { visible = true, fullRoute, fullGeometry, highlightedGeometry, onStopClick, fromStopId, toStopId, onMapClick, onStopDragEnd },
+  { visible = true, fullRoute, fullGeometry, highlightedGeometry, actualGeometry, onStopClick, fromStopId, toStopId, onMapClick, onStopDragEnd },
   ref,
 ) {
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -138,6 +139,22 @@ export const LogMap = forwardRef<LogMapHandle, LogMapProps>(function LogMap(
         },
       });
 
+      map.addSource('actual-route', {
+        type: 'geojson',
+        data: emptyLineFeature,
+      });
+      map.addLayer({
+        id: 'actual-route-line',
+        type: 'line',
+        source: 'actual-route',
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#f97316',
+          'line-width': 4,
+          'line-opacity': 1,
+        },
+      });
+
       map.addSource('highlight-route', {
         type: 'geojson',
         data: emptyLineFeature,
@@ -150,6 +167,7 @@ export const LogMap = forwardRef<LogMapHandle, LogMapProps>(function LogMap(
         paint: {
           'line-color': '#2563eb',
           'line-width': 5,
+          'line-opacity': 0.95,
         },
       });
 
@@ -338,16 +356,24 @@ export const LogMap = forwardRef<LogMapHandle, LogMapProps>(function LogMap(
 
     const map = mapInstance.current;
     const fullRouteSource = map.getSource('full-route') as maplibregl.GeoJSONSource | undefined;
+    const actualRouteSource = map.getSource('actual-route') as maplibregl.GeoJSONSource | undefined;
     const highlightRouteSource = map.getSource('highlight-route') as maplibregl.GeoJSONSource | undefined;
     const stopsSource = map.getSource('stops-source') as maplibregl.GeoJSONSource | undefined;
 
     if (fullRouteSource) {
-      // Ensure we only pass a valid geometry object to the feature
       const validGeometry = fullGeometry?.type === 'LineString' ? fullGeometry : null;
-      
       fullRouteSource.setData(
         validGeometry
           ? { type: 'Feature', geometry: validGeometry, properties: {} }
+          : emptyLineFeature,
+      );
+    }
+
+    if (actualRouteSource) {
+      const validActual = actualGeometry?.type === 'LineString' ? actualGeometry : null;
+      actualRouteSource.setData(
+        validActual
+          ? { type: 'Feature', geometry: validActual, properties: {} }
           : emptyLineFeature,
       );
     }
@@ -379,7 +405,7 @@ export const LogMap = forwardRef<LogMapHandle, LogMapProps>(function LogMap(
 
       stopsSource.setData({ type: 'FeatureCollection', features });
     }
-  }, [mapLoaded, fullGeometry, highlightedGeometry, fullRoute, fromStopId, toStopId]);
+  }, [mapLoaded, fullGeometry, actualGeometry, highlightedGeometry, fullRoute, fromStopId, toStopId]);
 
   // Effect 2: fit bounds only when the route first loads
   const hasFitted = useRef(false);
@@ -391,9 +417,11 @@ export const LogMap = forwardRef<LogMapHandle, LogMapProps>(function LogMap(
       .map((entry) => entry.stop?.location)
       .filter((entry): entry is [number, number] => Array.isArray(entry) && entry.length === 2);
 
-    const boundsCoords = (fullGeometry && 'coordinates' in fullGeometry && fullGeometry.coordinates.length > 0)
-      ? fullGeometry.coordinates
-      : stopCoords;
+    const allLineCoords: [number, number][] = [];
+    if (fullGeometry && 'coordinates' in fullGeometry && fullGeometry.coordinates.length > 0) allLineCoords.push(...(fullGeometry.coordinates as [number, number][]));
+    if (actualGeometry && 'coordinates' in actualGeometry && actualGeometry.coordinates.length > 0) allLineCoords.push(...(actualGeometry.coordinates as [number, number][]));
+
+    const boundsCoords = allLineCoords.length > 0 ? allLineCoords : stopCoords;
 
     if (boundsCoords.length === 0) return;
 

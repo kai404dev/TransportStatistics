@@ -25,7 +25,7 @@ export default async function TripDetailsPage({
   });
 
   if (tripData) {
-    return <TripDetailsClient data={tripData} isOwner={true} />;
+    return <TripDetailsClient data={tripData as unknown as Parameters<typeof TripDetailsClient>[0]['data']} isOwner={true} />;
   }
 
   // Try fetching as friend/viewer
@@ -43,5 +43,5 @@ export default async function TripDetailsPage({
 
   if (!accessCheck.allowed) notFound();
 
-  return <TripDetailsClient data={tripData} isOwner={false} />;
+  return <TripDetailsClient data={tripData as unknown as Parameters<typeof TripDetailsClient>[0]['data']} isOwner={false} />;
 }

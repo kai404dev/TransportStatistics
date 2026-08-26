@@ -188,6 +188,13 @@ const tripLogArgs = {
   ),
   bustimes_service_id: v.optional(v.number()),
   bustimes_service_slug: v.optional(v.string()),
+  bustimes_trip_id: v.optional(v.number()),
+  vehicle_journey_id: v.optional(v.number()),
+  time_aware_polyline: v.optional(v.string()),
+  scheduled_geometry: v.optional(v.any()),
+  actual_geometry: v.optional(v.any()),
+  scheduled_route: v.optional(v.any()),
+  actual_route: v.optional(v.any()),
   origin_name: v.string(),
   origin_stop_code: v.string(),
   destination_name: v.string(),
@@ -238,6 +245,13 @@ function toTripSummary(trip: Doc<"tripLogs">) {
     transport_type: trip.transport_type,
     bustimes_service_id: trip.bustimes_service_id,
     bustimes_service_slug: trip.bustimes_service_slug,
+    bustimes_trip_id: (trip as unknown as Record<string, unknown>).bustimes_trip_id as number | undefined,
+    vehicle_journey_id: (trip as unknown as Record<string, unknown>).vehicle_journey_id as number | undefined,
+    time_aware_polyline: (trip as unknown as Record<string, unknown>).time_aware_polyline as string | undefined,
+    scheduled_geometry: (trip as unknown as Record<string, unknown>).scheduled_geometry as unknown,
+    actual_geometry: (trip as unknown as Record<string, unknown>).actual_geometry as unknown,
+    scheduled_route: (trip as unknown as Record<string, unknown>).scheduled_route as unknown,
+    actual_route: (trip as unknown as Record<string, unknown>).actual_route as unknown,
     origin_name: trip.origin_name,
     origin_stop_code: trip.origin_stop_code,
     destination_name: trip.destination_name,
@@ -268,31 +282,52 @@ function toTripSummary(trip: Doc<"tripLogs">) {
 async function batchAttachRouteDetails(ctx: QueryCtx, trips: Doc<"tripLogs">[]) {
   const routeMap = new Map<
     string,
-    { full_route?: unknown; ridden_route?: unknown; full_locations?: unknown }
+    {
+      full_route?: unknown;
+      ridden_route?: unknown;
+      full_locations?: unknown;
+      scheduled_route?: unknown;
+      actual_route?: unknown;
+      scheduled_geometry?: unknown;
+      actual_geometry?: unknown;
+      time_aware_polyline?: unknown;
+      vehicle_journey_id?: unknown;
+      bustimes_trip_id?: unknown;
+    }
   >();
   const needLookup: Doc<"tripLogs">[] = [];
 
   for (const trip of trips) {
-    if (
-      trip.full_route !== undefined ||
-      trip.ridden_route !== undefined ||
-      trip.full_locations !== undefined
-    ) {
-      routeMap.set(String(trip._id), {
-        full_route: trip.full_route,
-        ridden_route: trip.ridden_route,
-        full_locations: trip.full_locations,
-      });
-    } else {
+    const t = trip as unknown as Record<string, unknown>;
+    // Seed map with inline values (including new bus tracking fields which may be inline)
+    routeMap.set(String(trip._id), {
+      full_route: trip.full_route,
+      ridden_route: trip.ridden_route,
+      full_locations: trip.full_locations,
+      scheduled_route: t.scheduled_route,
+      actual_route: t.actual_route,
+      scheduled_geometry: t.scheduled_geometry,
+      actual_geometry: t.actual_geometry,
+      time_aware_polyline: t.time_aware_polyline,
+      vehicle_journey_id: t.vehicle_journey_id,
+      bustimes_trip_id: t.bustimes_trip_id,
+    });
+    // Need to fetch tripRouteDetails if the canonical full_route is missing/empty
+    const fullMissing =
+      trip.full_route === undefined ||
+      (Array.isArray(trip.full_route) && (trip.full_route as unknown[]).length === 0);
+    const riddenMissing =
+      trip.ridden_route === undefined ||
+      (Array.isArray(trip.ridden_route) && (trip.ridden_route as unknown[]).length === 0);
+    const locMissing =
+      trip.full_locations === undefined ||
+      (Array.isArray(trip.full_locations) && (trip.full_locations as unknown[]).length === 0);
+    if (fullMissing && riddenMissing && locMissing) {
       needLookup.push(trip);
     }
   }
 
   if (needLookup.length > 0) {
-    // Routes are externalized to tripRouteDetails. Point-lookup each trip's
-    // details via the by_tripId index so we only read the documents we
-    // actually return — collecting per owner reads the owner's entire route
-    // history and blows the 16MB bytes-read limit.
     const detailResults = await Promise.all(
       needLookup.map((trip) =>
         ctx.db
@@ -304,21 +339,61 @@ async function batchAttachRouteDetails(ctx: QueryCtx, trips: Doc<"tripLogs">[]) 
 
     for (const detail of detailResults) {
       if (!detail) continue;
-      routeMap.set(String(detail.tripId), {
-        full_route: detail.full_route,
-        ridden_route: detail.ridden_route,
-        full_locations: detail.full_locations,
+      const d = detail as unknown as Record<string, unknown>;
+      const key = String(detail.tripId);
+      const existing = routeMap.get(key);
+      // Merge: prefer inline for tracking fields, but fill missing full_route from details
+      // If details' full_route is empty, fallback to scheduled_route
+      const detailFull = detail.full_route as unknown as unknown[] | undefined;
+      const detailRidden = detail.ridden_route as unknown as unknown[] | undefined;
+      const detailLoc = detail.full_locations as unknown as unknown[] | undefined;
+      const fallbackFull = (Array.isArray(detailFull) && detailFull.length > 0 ? detailFull : undefined) ??
+        (Array.isArray(d.scheduled_route as unknown[]) && (d.scheduled_route as unknown[]).length > 0 ? d.scheduled_route : undefined) ??
+        existing?.full_route;
+      const fallbackRidden = (Array.isArray(detailRidden) && detailRidden.length > 0 ? detailRidden : undefined) ?? existing?.ridden_route;
+      const fallbackLoc = (Array.isArray(detailLoc) && detailLoc.length > 0 ? detailLoc : undefined) ?? existing?.full_locations;
+      routeMap.set(key, {
+        full_route: fallbackFull,
+        ridden_route: fallbackRidden,
+        full_locations: fallbackLoc,
+        scheduled_route: (existing?.scheduled_route as unknown) ?? d.scheduled_route,
+        actual_route: (existing?.actual_route as unknown) ?? d.actual_route,
+        scheduled_geometry: (existing?.scheduled_geometry as unknown) ?? d.scheduled_geometry,
+        actual_geometry: (existing?.actual_geometry as unknown) ?? d.actual_geometry,
+        time_aware_polyline: (existing?.time_aware_polyline as unknown) ?? d.time_aware_polyline,
+        vehicle_journey_id: (existing?.vehicle_journey_id as unknown) ?? d.vehicle_journey_id,
+        bustimes_trip_id: (existing?.bustimes_trip_id as unknown) ?? d.bustimes_trip_id,
       });
+    }
+  }
+
+  // Final fallback: if full_route still missing/empty, use scheduled_route/actual_route
+  for (const [key, val] of routeMap.entries()) {
+    const fr = val.full_route as unknown[] | undefined;
+    if (!fr || (Array.isArray(fr) && fr.length === 0)) {
+      const sched = val.scheduled_route as unknown[] | undefined;
+      const actual = val.actual_route as unknown[] | undefined;
+      if (Array.isArray(sched) && sched.length > 0) val.full_route = sched;
+      else if (Array.isArray(actual) && actual.length > 0) val.full_route = actual;
     }
   }
 
   return trips.map((trip) => {
     const routes = routeMap.get(String(trip._id));
+    const t = trip as unknown as Record<string, unknown>;
+    const summary = toTripSummary(trip);
     return {
-      ...toTripSummary(trip),
+      ...summary,
       full_route: routes?.full_route ?? trip.full_route,
       ridden_route: routes?.ridden_route ?? trip.ridden_route,
       full_locations: routes?.full_locations ?? trip.full_locations,
+      scheduled_route: (routes?.scheduled_route as unknown) ?? t.scheduled_route,
+      actual_route: (routes?.actual_route as unknown) ?? t.actual_route,
+      scheduled_geometry: (routes?.scheduled_geometry as unknown) ?? t.scheduled_geometry,
+      actual_geometry: (routes?.actual_geometry as unknown) ?? t.actual_geometry,
+      time_aware_polyline: (routes?.time_aware_polyline as unknown as string) ?? (t.time_aware_polyline as string | undefined),
+      vehicle_journey_id: (routes?.vehicle_journey_id as number | undefined) ?? (t.vehicle_journey_id as number | undefined),
+      bustimes_trip_id: (routes?.bustimes_trip_id as number | undefined) ?? (t.bustimes_trip_id as number | undefined),
     };
   });
 }
@@ -329,11 +404,26 @@ async function attachRouteDetails(ctx: QueryCtx, trip: Doc<"tripLogs">) {
 }
 
 async function getRouteDetails(ctx: QueryCtx, trip: Doc<"tripLogs">) {
-  if (trip.full_route !== undefined || trip.ridden_route !== undefined || trip.full_locations !== undefined) {
+  const t = trip as unknown as Record<string, unknown>;
+  const hasFullInline =
+    trip.full_route !== undefined && !(Array.isArray(trip.full_route) && (trip.full_route as unknown[]).length === 0);
+  const hasRiddenInline =
+    trip.ridden_route !== undefined && !(Array.isArray(trip.ridden_route) && (trip.ridden_route as unknown[]).length === 0);
+  const hasLocInline =
+    trip.full_locations !== undefined && !(Array.isArray(trip.full_locations) && (trip.full_locations as unknown[]).length === 0);
+  if (hasFullInline || hasRiddenInline || hasLocInline) {
+    // Has canonical route inline — still merge tracking fields from inline
     return {
       full_route: trip.full_route,
       ridden_route: trip.ridden_route,
       full_locations: trip.full_locations,
+      scheduled_route: t.scheduled_route,
+      actual_route: t.actual_route,
+      scheduled_geometry: t.scheduled_geometry,
+      actual_geometry: t.actual_geometry,
+      time_aware_polyline: t.time_aware_polyline,
+      vehicle_journey_id: t.vehicle_journey_id,
+      bustimes_trip_id: t.bustimes_trip_id,
     };
   }
 
@@ -342,10 +432,42 @@ async function getRouteDetails(ctx: QueryCtx, trip: Doc<"tripLogs">) {
     .withIndex("by_tripId", (q) => q.eq("tripId", trip._id))
     .first();
 
+  if (!details) {
+    // No details row — fallback scheduled/actual as full_route if present
+    const fallbackFull =
+      (Array.isArray(t.scheduled_route) && (t.scheduled_route as unknown[]).length > 0 ? t.scheduled_route : undefined) ??
+      (Array.isArray(t.actual_route) && (t.actual_route as unknown[]).length > 0 ? t.actual_route : undefined);
+    return {
+      full_route: (trip.full_route as unknown) ?? fallbackFull,
+      ridden_route: trip.ridden_route,
+      full_locations: trip.full_locations,
+      scheduled_route: t.scheduled_route,
+      actual_route: t.actual_route,
+      scheduled_geometry: t.scheduled_geometry,
+      actual_geometry: t.actual_geometry,
+      time_aware_polyline: t.time_aware_polyline,
+      vehicle_journey_id: t.vehicle_journey_id,
+      bustimes_trip_id: t.bustimes_trip_id,
+    };
+  }
+  const d = details as unknown as Record<string, unknown>;
+  const detailFull = details.full_route as unknown[] | undefined;
+  const fallbackFull =
+    (Array.isArray(detailFull) && detailFull.length > 0 ? detailFull : undefined) ??
+    (Array.isArray(d.scheduled_route as unknown[]) && (d.scheduled_route as unknown[]).length > 0 ? d.scheduled_route : undefined) ??
+    (Array.isArray(t.scheduled_route as unknown[]) && (t.scheduled_route as unknown[]).length > 0 ? t.scheduled_route : undefined) ??
+    trip.full_route;
   return {
-    full_route: details?.full_route ?? trip.full_route,
-    ridden_route: details?.ridden_route ?? trip.ridden_route,
-    full_locations: details?.full_locations ?? trip.full_locations,
+    full_route: fallbackFull,
+    ridden_route: (details.ridden_route as unknown) ?? trip.ridden_route,
+    full_locations: (details.full_locations as unknown) ?? trip.full_locations,
+    scheduled_route: d.scheduled_route ?? t.scheduled_route,
+    actual_route: d.actual_route ?? t.actual_route,
+    scheduled_geometry: d.scheduled_geometry ?? t.scheduled_geometry,
+    actual_geometry: d.actual_geometry ?? t.actual_geometry,
+    time_aware_polyline: d.time_aware_polyline ?? t.time_aware_polyline,
+    vehicle_journey_id: d.vehicle_journey_id ?? t.vehicle_journey_id,
+    bustimes_trip_id: d.bustimes_trip_id ?? t.bustimes_trip_id,
   };
 }
 
@@ -359,6 +481,13 @@ async function saveRouteDetails(
     full_route?: unknown;
     ridden_route?: unknown;
     full_locations?: unknown;
+    scheduled_route?: unknown;
+    actual_route?: unknown;
+    scheduled_geometry?: unknown;
+    actual_geometry?: unknown;
+    time_aware_polyline?: unknown;
+    vehicle_journey_id?: unknown;
+    bustimes_trip_id?: unknown;
   },
 ) {
   const existing = await ctx.db
@@ -372,6 +501,13 @@ async function saveRouteDetails(
     full_route: routes.full_route,
     ridden_route: routes.ridden_route,
     full_locations: routes.full_locations,
+    scheduled_route: routes.scheduled_route,
+    actual_route: routes.actual_route,
+    scheduled_geometry: routes.scheduled_geometry,
+    actual_geometry: routes.actual_geometry,
+    time_aware_polyline: routes.time_aware_polyline as string | undefined,
+    vehicle_journey_id: routes.vehicle_journey_id as number | undefined,
+    bustimes_trip_id: routes.bustimes_trip_id as number | undefined,
     updated_at: Date.now(),
   };
 
@@ -976,7 +1112,19 @@ export const logTrip = mutation({
       args.transport_type
     );
 
-    const { full_route, ridden_route, coupling_events, ...tripFields } = args;
+    const {
+      full_route,
+      ridden_route,
+      coupling_events,
+      scheduled_route,
+      actual_route,
+      scheduled_geometry,
+      actual_geometry,
+      time_aware_polyline,
+      vehicle_journey_id,
+      bustimes_trip_id,
+      ...tripFields
+    } = args;
     const distance_km = calculateDistanceKm(full_route, ridden_route);
 
     // ensureUserRecord and hasExistingTripWithVehicle are independent — run in parallel
@@ -996,6 +1144,13 @@ export const logTrip = mutation({
       on_trip_with: [],
       logged_at: Date.now(),
       ...tripFields,
+      bustimes_trip_id,
+      vehicle_journey_id,
+      time_aware_polyline,
+      scheduled_geometry,
+      actual_geometry,
+      scheduled_route,
+      actual_route,
       unit_number,
       unit_reg,
       unit_type: primaryUnit?.unit_type,
@@ -1009,7 +1164,17 @@ export const logTrip = mutation({
       coupling_events,
     });
 
-    await saveRouteDetails(ctx, tripId, identity.subject, { full_route, ridden_route });
+    await saveRouteDetails(ctx, tripId, identity.subject, {
+      full_route,
+      ridden_route,
+      scheduled_route,
+      actual_route,
+      scheduled_geometry,
+      actual_geometry,
+      time_aware_polyline,
+      vehicle_journey_id,
+      bustimes_trip_id,
+    });
     await incrementUserTripStats(ctx, identity.subject, args.service_date);
 
     return tripId;
@@ -1035,7 +1200,18 @@ export const updateTrip = mutation({
       args.transport_type
     );
 
-    const { full_route, ridden_route, coupling_events } = args;
+    const {
+      full_route,
+      ridden_route,
+      coupling_events,
+      scheduled_route,
+      actual_route,
+      scheduled_geometry,
+      actual_geometry,
+      time_aware_polyline,
+      vehicle_journey_id,
+      bustimes_trip_id,
+    } = args;
     const distance_km = calculateDistanceKm(full_route, ridden_route);
 
     // Vehicle check and route detail lookup are independent — run in parallel
@@ -1047,7 +1223,17 @@ export const updateTrip = mutation({
         vehicle_key,
         args.tripId
       ),
-      saveRouteDetails(ctx, args.tripId, identity.subject, { full_route, ridden_route }),
+      saveRouteDetails(ctx, args.tripId, identity.subject, {
+        full_route,
+        ridden_route,
+        scheduled_route,
+        actual_route,
+        scheduled_geometry,
+        actual_geometry,
+        time_aware_polyline,
+        vehicle_journey_id,
+        bustimes_trip_id,
+      }),
     ]);
 
     const first_time = !existingTripExists;
@@ -1064,6 +1250,13 @@ export const updateTrip = mutation({
       transport_type: args.transport_type,
       bustimes_service_id: args.bustimes_service_id,
       bustimes_service_slug: args.bustimes_service_slug,
+      bustimes_trip_id,
+      vehicle_journey_id,
+      time_aware_polyline,
+      scheduled_geometry,
+      actual_geometry,
+      scheduled_route,
+      actual_route,
       origin_name: args.origin_name,
       origin_stop_code: args.origin_stop_code,
       destination_name: args.destination_name,

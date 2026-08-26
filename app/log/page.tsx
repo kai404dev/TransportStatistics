@@ -89,6 +89,9 @@ type ApiLogResponse = {
   service_date?: number;
   bustimes_service_id?: number;
   bustimes_service_slug?: string;
+  bustimes_trip_id?: number;
+  vehicle_journey_id?: number;
+  time_aware_polyline?: string;
   origin_name?: string;
   origin_stop_code?: string | null;
   destination_name?: string;
@@ -99,6 +102,10 @@ type ApiLogResponse = {
   actual_arrival?: string | null;
   full_route?: RouteStop[];
   full_route_geometry?: RouteGeometry | null;
+  scheduled_geometry?: RouteGeometry | null;
+  actual_geometry?: RouteGeometry | null;
+  scheduled_route?: RouteStop[];
+  actual_route?: RouteStop[];
   polyline_path?: [number, number][] | null;
   unit?: Partial<TripUnit> | Record<string, Partial<TripUnit>> | null;
   error?: string;
@@ -148,6 +155,13 @@ type EditableTripRecord = {
   transport_type: StoredTransportType;
   bustimes_service_id?: number;
   bustimes_service_slug?: string;
+  bustimes_trip_id?: number;
+  vehicle_journey_id?: number;
+  time_aware_polyline?: string;
+  scheduled_geometry?: RouteGeometry | null;
+  actual_geometry?: RouteGeometry | null;
+  scheduled_route?: RouteStop[] | null;
+  actual_route?: RouteStop[] | null;
   origin_name: string;
   origin_stop_code: string;
   destination_name: string;
@@ -239,7 +253,7 @@ function toTimeInputValue(value?: string | null) {
 
 function formatDisplayTime(value?: string | null) {
   const formatted = toTimeInputValue(value);
-  return formatted || '—';
+  return formatted || '-';
 }
 
 function normalizeUnit(unit?: Partial<TripUnit> | null): TripUnit {
@@ -639,6 +653,18 @@ export default function LogPage() {
   const [fullRoute, setFullRoute] = useState<RouteStop[]>([]);
   const [fullGeometry, setFullGeometry] = useState<RouteGeometry | null>(null);
   const [polylinePath, setPolylinePath] = useState<[number, number][] | null>(null);
+  // Bus-only: actual vs scheduled tracking from vehicle journey
+  const [vehicleJourneyId, setVehicleJourneyId] = useState<number | null>(null);
+  const [bustimesTripId, setBustimesTripId] = useState<number | null>(null);
+  const [actualGeometry, setActualGeometry] = useState<RouteGeometry | null>(null);
+  const [scheduledGeometry, setScheduledGeometry] = useState<RouteGeometry | null>(null);
+  const [timeAwarePolyline, setTimeAwarePolyline] = useState<string | null>(null);
+  const [scheduledRoute, setScheduledRoute] = useState<RouteStop[] | null>(null);
+  const [actualRoute, setActualRoute] = useState<RouteStop[] | null>(null);
+  const [saveActualTracking, setSaveActualTracking] = useState(true);
+  const [journeyLinkInput, setJourneyLinkInput] = useState('');
+  const [journeyFetchLoading, setJourneyFetchLoading] = useState(false);
+  const [journeyFetchError, setJourneyFetchError] = useState('');
   const [fromStopId, setFromStopId] = useState<number | null>(null);
   const [toStopId, setToStopId] = useState<number | null>(null);
   const [selectedStopId, setSelectedStopId] = useState<number | null>(null);
@@ -678,7 +704,12 @@ export default function LogPage() {
   const isEditingTrip = Boolean(editTripId);
 
   const selectedStop = fullRoute.find((s) => s.id === selectedStopId) ?? null;
-  const riddenRoute = buildRiddenRoute(fullRoute, fromStopId, toStopId, polylinePath ?? fullGeometry?.coordinates ?? null);
+  const riddenRoute = buildRiddenRoute(
+    fullRoute,
+    fromStopId,
+    toStopId,
+    (saveActualTracking && actualGeometry ? (polylinePath ?? actualGeometry.coordinates) : null) ?? fullGeometry?.coordinates ?? null
+  );
   const selectedUnit = units[selectedUnitIndex] ?? null;
 
   useEffect(() => {
@@ -728,10 +759,79 @@ export default function LogPage() {
 
         const storedRoute = normalizeRouteStops(editTrip.full_route);
         const fallbackRoute = normalizeRouteStops(editTrip.full_locations);
+        const scheduledFallback = normalizeRouteStops((editTrip as unknown as Record<string, unknown>).scheduled_route);
+        const actualFallback = normalizeRouteStops((editTrip as unknown as Record<string, unknown>).actual_route);
         const riddenRouteStops = normalizeRouteStops(editTrip.ridden_route);
-        const route = storedRoute.length > 0 ? storedRoute : fallbackRoute;
-        const activeRoute = riddenRouteStops.length > 0 ? riddenRouteStops : route;
-        const resolvedGeometry = normalizeRouteGeometry(editTrip.full_route) ?? normalizeRouteGeometry(editTrip.ridden_route);
+        const route = storedRoute.length > 0 ? storedRoute : fallbackRoute.length > 0 ? fallbackRoute : scheduledFallback.length > 0 ? scheduledFallback : actualFallback;
+        // Ridden route may have been saved with different ID hashes (e.g. scheduled 17179… vs bus 11222…).
+        // Validate by stop_code (and name for hail-and-ride) rather than ID, and translate ridden to the current route's slice.
+        const routeCodeToIndices = new (globalThis as unknown as { Map: new () => Map<string, number[]> }).Map() as Map<string, number[]>;
+        const routeNameToIndices = new (globalThis as unknown as { Map: new () => Map<string, number[]> }).Map() as Map<string, number[]>;
+        route.forEach((s, idx) => {
+          const code = s.stop.stop_code;
+          if (code) {
+            const arr = routeCodeToIndices.get(code) ?? [];
+            arr.push(idx);
+            routeCodeToIndices.set(code, arr);
+          }
+          const name = s.stop.name?.trim().toLowerCase();
+          if (name) {
+            const arr2 = routeNameToIndices.get(name) ?? [];
+            arr2.push(idx);
+            routeNameToIndices.set(name, arr2);
+          }
+        });
+        const findIdxForStop = (stop: RouteStop): number => {
+          const code = stop.stop.stop_code;
+          if (code && routeCodeToIndices.has(code)) return routeCodeToIndices.get(code)![0];
+          const name = stop.stop.name?.trim().toLowerCase();
+          if (name && routeNameToIndices.has(name)) return routeNameToIndices.get(name)![0];
+          // Last resort: match by location proximity (for stops without code/name stability)
+          const loc = stop.stop.location;
+          if (Array.isArray(loc) && loc.length === 2) {
+            for (let i = 0; i < route.length; i++) {
+              const rl = route[i].stop.location;
+              if (Array.isArray(rl) && rl.length === 2 && Math.hypot(rl[0]-loc[0], rl[1]-loc[1]) < 0.0005) return i;
+            }
+          }
+          return -1;
+        };
+        const riddenValid = riddenRouteStops.length > 1 && riddenRouteStops.every((s) => findIdxForStop(s) !== -1);
+        let activeRoute: RouteStop[];
+        if (riddenValid) {
+          const fromIdx = findIdxForStop(riddenRouteStops[0]);
+          const toIdx = findIdxForStop(riddenRouteStops[riddenRouteStops.length - 1]);
+          let adjFrom = fromIdx;
+          let adjTo = toIdx;
+          if (adjFrom !== -1 && adjTo !== -1 && adjTo < adjFrom) {
+            // Circular case: find later occurrence of to stop after from
+            const toCode = riddenRouteStops[riddenRouteStops.length - 1].stop.stop_code;
+            const toName = riddenRouteStops[riddenRouteStops.length - 1].stop.name?.trim().toLowerCase();
+            for (let i = route.length - 1; i > adjFrom; i--) {
+              if ((toCode && route[i].stop.stop_code === toCode) || (toName && route[i].stop.name?.trim().toLowerCase() === toName)) {
+                adjTo = i; break;
+              }
+            }
+          }
+          if (adjFrom !== -1 && adjTo !== -1 && adjFrom <= adjTo) {
+            activeRoute = route.slice(adjFrom, adjTo + 1);
+          } else {
+            activeRoute = route;
+          }
+        } else if (riddenRouteStops.length > 1) {
+          const routeIdSet = new Set(route.map((s) => s.id));
+          const riddenValidById = riddenRouteStops.every((s) => routeIdSet.has(s.id));
+          activeRoute = riddenValidById ? riddenRouteStops : route;
+        } else {
+          activeRoute = route;
+        }
+        const resolvedGeometry =
+          normalizeRouteGeometry(editTrip.full_route) ??
+          normalizeRouteGeometry(editTrip.ridden_route) ??
+          (editTrip.scheduled_geometry as RouteGeometry | null) ??
+          (editTrip.actual_geometry as RouteGeometry | null) ??
+          normalizeRouteGeometry((editTrip as unknown as Record<string, unknown>).scheduled_route) ??
+          normalizeRouteGeometry((editTrip as unknown as Record<string, unknown>).actual_route);
         const initialUnits = normalizeUnits(editTrip.units as ApiLogResponse['unit']);
         const firstStop = route[0] ?? activeRoute[0];
         const editDateLabel = new Date(editTrip.service_date).toLocaleDateString('en-GB', {
@@ -746,6 +846,19 @@ export default function LogPage() {
         setSourceLabel(`Editing saved trip from ${editDateLabel}`);
         setFullRoute(route);
         setFullGeometry(resolvedGeometry);
+        // Restore bus-specific actual tracking if present (bus only)
+        setVehicleJourneyId(typeof editTrip.vehicle_journey_id === 'number' ? editTrip.vehicle_journey_id : null);
+        setBustimesTripId(typeof editTrip.bustimes_trip_id === 'number' ? editTrip.bustimes_trip_id : null);
+        setTimeAwarePolyline(typeof editTrip.time_aware_polyline === 'string' ? editTrip.time_aware_polyline : null);
+        setScheduledGeometry((editTrip.scheduled_geometry as RouteGeometry | null) ?? null);
+        setActualGeometry((editTrip.actual_geometry as RouteGeometry | null) ?? null);
+        setScheduledRoute(Array.isArray(editTrip.scheduled_route) ? editTrip.scheduled_route as RouteStop[] : null);
+        setActualRoute(Array.isArray(editTrip.actual_route) ? editTrip.actual_route as RouteStop[] : null);
+        setSaveActualTracking(Boolean(editTrip.vehicle_journey_id || editTrip.time_aware_polyline || editTrip.actual_geometry));
+        setPolylinePath(
+          (editTrip.actual_geometry as RouteGeometry | null)?.coordinates ??
+          (Array.isArray((editTrip as unknown as Record<string, unknown>).polyline_path) ? (editTrip as unknown as Record<string, unknown>).polyline_path as [number, number][] : null)
+        );
         setUnits(initialUnits);
         setSelectedUnitIndex(0);
         setSelectedStopId(firstStop?.id ?? null);
@@ -797,6 +910,15 @@ export default function LogPage() {
         if (cancelled) return;
         setFullRoute([startStop]);
         setFullGeometry(null);
+        setPolylinePath(null);
+        setActualGeometry(null);
+        setScheduledGeometry(null);
+        setScheduledRoute(null);
+        setActualRoute(null);
+        setVehicleJourneyId(null);
+        setBustimesTripId(null);
+        setTimeAwarePolyline(null);
+        setSaveActualTracking(false);
         setFromStopId(0);
         setToStopId(null);
         setSelectedStopId(0);
@@ -832,19 +954,47 @@ export default function LogPage() {
         setFullRoute(route); setFullGeometry(resolvedGeometry);
         setPolylinePath(Array.isArray(payload.polyline_path) ? payload.polyline_path : null);
         setUnits(initialUnits); setSelectedUnitIndex(0);
+        // Prefer scheduled route when available (bus journey with actual tracking)
+        const schedRoute = Array.isArray(payload.scheduled_route) ? payload.scheduled_route : null;
+        const schedGeom = (payload.scheduled_geometry as RouteGeometry | null) ?? null;
+        const actGeom = (payload.actual_geometry as RouteGeometry | null) ?? null;
+        const actRoute = Array.isArray(payload.actual_route) ? payload.actual_route : null;
+        // If scheduled route exists, use it as the editable fullRoute; otherwise use payload.full_route
+        const effectiveRoute = schedRoute && schedRoute.length > 0 ? schedRoute : route;
+        const effectiveGeometry = schedGeom ?? resolvedGeometry;
+        const effectivePolyline = actGeom?.coordinates ?? (Array.isArray(payload.polyline_path) ? payload.polyline_path : null);
+
+        // Update fullRoute/geometry to scheduled (intended) route when we have actual tracking
+        if (schedRoute && schedRoute.length > 0) {
+          setFullRoute(schedRoute);
+          setFullGeometry(schedGeom ?? buildFullGeometry(schedRoute, schedGeom));
+        }
+        setScheduledRoute(schedRoute);
+        setActualRoute(actRoute);
+        setScheduledGeometry(schedGeom);
+        setActualGeometry(actGeom);
+        setTimeAwarePolyline(typeof payload.time_aware_polyline === 'string' ? payload.time_aware_polyline : null);
+        setVehicleJourneyId(typeof payload.vehicle_journey_id === 'number' ? payload.vehicle_journey_id : null);
+        setBustimesTripId(typeof payload.bustimes_trip_id === 'number' ? payload.bustimes_trip_id : null);
+        setPolylinePath(effectivePolyline as [number, number][] | null);
+        setSaveActualTracking(Boolean(payload.vehicle_journey_id || payload.time_aware_polyline || actGeom));
+
         const logParams = new URLSearchParams(searchKey);
         const stopCodeParam = logParams.get('stop_code');
         const latParam = logParams.get('lat');
         const lonParam = logParams.get('lon');
-        let startStop = firstStop;
+        // Use effective route for stop selection
+        const routeForSelection = effectiveRoute;
+        let startStop = routeForSelection[0] ?? firstStop;
+        const lastForSelection = routeForSelection[routeForSelection.length - 1] ?? lastStop;
         if (stopCodeParam) {
-          startStop = route.find((s) => s.stop.stop_code === stopCodeParam) || firstStop;
+          startStop = routeForSelection.find((s) => s.stop.stop_code === stopCodeParam) || startStop;
         } else if (latParam && lonParam) {
-          startStop = findNearestStop(route, parseFloat(latParam), parseFloat(lonParam)) || firstStop;
+          startStop = findNearestStop(routeForSelection, parseFloat(latParam), parseFloat(lonParam)) || startStop;
         }
         setSelectedStopId(startStop?.id ?? null);
-        setFromStopId(route.length > 1 ? startStop?.id ?? null : null);
-        setToStopId(route.length > 1 ? lastStop?.id ?? null : null);
+        setFromStopId(routeForSelection.length > 1 ? startStop?.id ?? null : null);
+        setToStopId(routeForSelection.length > 1 ? lastForSelection?.id ?? null : null);
         setNotes('');
         setCouplingEvents([]);
         setServiceForm({
@@ -1229,11 +1379,88 @@ export default function LogPage() {
     syncFormFromRoute(fullRoute, f, t);
   }
 
+  function extractJourneyId(input: string): string | null {
+    const trimmed = input.trim();
+    if (!trimmed) return null;
+    if (/^\d+$/.test(trimmed)) return trimmed;
+    try {
+      const url = new URL(trimmed);
+      const parts = url.pathname.split('/').filter(Boolean);
+      for (let i = parts.length - 1; i >= 0; i--) {
+        if (/^\d+$/.test(parts[i])) return parts[i];
+      }
+    } catch {}
+    const m = trimmed.match(/(\d{6,})/);
+    return m ? m[1] : null;
+  }
+
+  async function handleFetchJourneyTracking() {
+    const journeyId = extractJourneyId(journeyLinkInput);
+    if (!journeyId) {
+      setJourneyFetchError('Paste a valid bustimes.org journey link e.g. https://bustimes.org/journeys/926741129');
+      return;
+    }
+    setJourneyFetchLoading(true);
+    setJourneyFetchError('');
+    try {
+      const res = await fetch(`/api/log?journey_id=${encodeURIComponent(journeyId)}`, { cache: 'no-store' });
+      const payload = (await res.json()) as ApiLogResponse & { error?: string; message?: string; details?: string };
+      if (!res.ok) throw new Error((payload as unknown as { error?: string; message?: string; details?: string }).details || payload.message || payload.error || 'Failed to fetch journey');
+      if (!payload.time_aware_polyline && !payload.actual_geometry) {
+        throw new Error('No live GPS trace found for that journey');
+      }
+      const actGeom = (payload.actual_geometry as RouteGeometry | null) ?? null;
+      const schedGeom = (payload.scheduled_geometry as RouteGeometry | null) ?? null;
+      setVehicleJourneyId(typeof payload.vehicle_journey_id === 'number' ? payload.vehicle_journey_id : Number(journeyId));
+      setBustimesTripId(typeof payload.bustimes_trip_id === 'number' ? payload.bustimes_trip_id : null);
+      setTimeAwarePolyline(typeof payload.time_aware_polyline === 'string' ? payload.time_aware_polyline : null);
+      setActualGeometry(actGeom);
+      setScheduledGeometry(schedGeom);
+      setScheduledRoute(Array.isArray(payload.scheduled_route) ? payload.scheduled_route : null);
+      setActualRoute(Array.isArray(payload.actual_route) ? payload.actual_route : null);
+      setPolylinePath((actGeom?.coordinates as [number, number][] | null) ?? (Array.isArray(payload.polyline_path) ? payload.polyline_path : null));
+      setSaveActualTracking(true);
+      // If the existing trip was previously wiped (fullRoute empty), recover stops from the fetched journey
+      // so saving does not wipe the route. Do not overwrite a valid existing route.
+      if (fullRoute.length === 0) {
+        const recovered: RouteStop[] | null =
+          (Array.isArray(payload.full_route) && payload.full_route.length > 0 ? payload.full_route : null) ??
+          (Array.isArray(payload.scheduled_route) && payload.scheduled_route.length > 0 ? payload.scheduled_route : null);
+        if (recovered && recovered.length > 0) {
+          const recoveredGeom = schedGeom ?? buildFullGeometry(recovered, schedGeom);
+          setFullRoute(recovered);
+          setFullGeometry(recoveredGeom);
+          setFromStopId(recovered[0]?.id ?? null);
+          setToStopId(recovered[recovered.length - 1]?.id ?? null);
+          setSelectedStopId(recovered[0]?.id ?? null);
+        }
+      }
+      setJourneyFetchError('');
+    } catch (err) {
+      setJourneyFetchError(err instanceof Error ? err.message : 'Failed to fetch journey');
+    } finally {
+      setJourneyFetchLoading(false);
+    }
+  }
+
   async function handleSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isConvexAuthLoading) { setSaveError('Auth still loading.'); return; }
     if (!isAuthenticated) { setSaveError('Sign in before saving.'); return; }
     if (fromStopId !== null && toStopId !== null && fromStopId === toStopId) { setSaveError('Start and end cannot be the same stop.'); setActiveTab('Route'); return; }
+    if (fullRoute.length === 0) {
+      // Prevent wiping an existing trip's stops — seen when a journey fetch previously cleared the route (app/log/page.tsx:1328)
+      if (scheduledRoute && scheduledRoute.length > 0) {
+        setSaveError('Route is empty — recovering from scheduled route, please try saving again.');
+        setFullRoute(scheduledRoute);
+        setFullGeometry(scheduledGeometry ?? buildFullGeometry(scheduledRoute, scheduledGeometry));
+        setFromStopId(scheduledRoute[0]?.id ?? null);
+        setToStopId(scheduledRoute[scheduledRoute.length - 1]?.id ?? null);
+        setActiveTab('Route');
+        return;
+      }
+      setSaveError('Route has no stops — pick a journey or add stops before saving.'); setActiveTab('Route'); return;
+    }
     if (fullRoute.length > 1 && !riddenRoute) { setSaveError('Pick valid start and end stops.'); setActiveTab('Route'); return; }
     if (!serviceForm.service_date) { setSaveError('Service date is required.'); setActiveTab('Service'); return; }
     try {
@@ -1246,14 +1473,22 @@ export default function LogPage() {
         livery_left: u.livery_left.trim() || undefined,
       })).filter((u) => Boolean(u.unit_number || u.unit_reg || u.unit_type || u.livery || u.livery_left));
       const parsedBustimesServiceId = serviceForm.bustimes_service_id.trim() ? Number(serviceForm.bustimes_service_id) : undefined;
+      const isBusWithTracking = vehicleMode === 'Bus' && saveActualTracking && (vehicleJourneyId || bustimesTripId || timeAwarePolyline || actualGeometry || scheduledGeometry);
       const payload = {
         service_number: serviceForm.service_number.trim() || 'Unknown',
         operator: serviceForm.operator.trim() || 'Unknown',
         operator_slug: serviceForm.operator_slug.trim() || 'unknown',
         service_date: new Date(`${serviceForm.service_date}T00:00:00`).getTime(),
-        transport_type: mapVehicleModeToTransportType(vehicleMode),
+        transport_type: mapVehicleModeToTransportType(vehicleMode) as 'Rail' | 'Bus' | 'Tram' | 'Other',
         bustimes_service_id: typeof parsedBustimesServiceId === 'number' && !Number.isNaN(parsedBustimesServiceId) ? parsedBustimesServiceId : undefined,
         bustimes_service_slug: serviceForm.bustimes_service_slug.trim() || undefined,
+        bustimes_trip_id: isBusWithTracking && bustimesTripId ? bustimesTripId : undefined,
+        vehicle_journey_id: isBusWithTracking && vehicleJourneyId ? vehicleJourneyId : undefined,
+        time_aware_polyline: isBusWithTracking && timeAwarePolyline ? timeAwarePolyline : undefined,
+        scheduled_geometry: isBusWithTracking && scheduledGeometry ? scheduledGeometry : undefined,
+        actual_geometry: isBusWithTracking && actualGeometry ? actualGeometry : undefined,
+        scheduled_route: isBusWithTracking && scheduledRoute ? scheduledRoute : undefined,
+        actual_route: isBusWithTracking && actualRoute ? actualRoute : undefined,
         origin_name: serviceForm.origin_name.trim() || 'Unknown Origin',
         origin_stop_code: serviceForm.origin_stop_code.trim() || '',
         destination_name: serviceForm.destination_name.trim() || 'Unknown Destination',
@@ -1270,9 +1505,9 @@ export default function LogPage() {
       };
 
       if (isEditingTrip && editTripId) {
-        await updateTrip({ tripId: editTripId as Id<'tripLogs'>, ...payload });
+        await updateTrip({ tripId: editTripId as Id<'tripLogs'>, ...payload } as unknown as Parameters<typeof updateTrip>[0]);
       } else {
-        await logTrip(payload);
+        await logTrip(payload as unknown as Parameters<typeof logTrip>[0]);
       }
 
       setSaveSuccess(isEditingTrip ? 'Trip updated!' : 'Trip saved!');
@@ -1416,12 +1651,59 @@ export default function LogPage() {
           </Card>
         </div>
 
+        {/* Already-logged bus trips: paste a bustimes.org journey link to fetch the live GPS trace */}
+        {isEditingTrip && vehicleMode === 'Bus' && (
+          <div className="rounded-2xl px-4 py-2 space-y-3">
+            <div>
+              <p className="text-sm font-medium text-ts-text-1">Add actual tracking from a journey link</p>
+              <p className="mt-1 text-xs text-ts-text-3">Paste a link like <span className="font-mono">https://bustimes.org/journeys/926741129</span> - we’ll pull the GPS trace and save it alongside the scheduled route.</p>
+            </div>
+            <div className="flex gap-2">
+              <input
+                value={journeyLinkInput}
+                onChange={(e) => { setJourneyLinkInput(e.target.value); if (journeyFetchError) setJourneyFetchError(''); }}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleFetchJourneyTracking(); } }}
+                placeholder="https://bustimes.org/journeys/926741129"
+                className="h-10 flex-1 rounded-xl border border-ts-border bg-ts-surface px-3 text-sm text-ts-text-1 outline-none placeholder:text-ts-text-3 focus:border-ts-accent focus:ring-2 focus:ring-ts-accent/20"
+              />
+              <button
+                type="button"
+                onClick={handleFetchJourneyTracking}
+                disabled={journeyFetchLoading || !journeyLinkInput.trim()}
+                className="h-10 shrink-0 rounded-xl bg-ts-accent px-4 text-sm font-semibold text-ts-text-inv transition hover:bg-ts-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {journeyFetchLoading ? 'Fetching…' : 'Add tracking'}
+              </button>
+            </div>
+            {journeyFetchError && <p className="text-xs text-red-400">{journeyFetchError}</p>}
+            {vehicleJourneyId && actualGeometry && !journeyFetchError && (
+              <p className="text-xs text-emerald-400">Tracking added check the map and save.</p>
+            )}
+          </div>
+        )}
+        {/* Bus-only: simple friendly checkbox - shows when vehicle journey provides actual tracking */}
+        {vehicleMode === 'Bus' && (vehicleJourneyId || actualGeometry || timeAwarePolyline) && (
+          <div className="rounded-2xl px-4 py-3">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={saveActualTracking}
+                onChange={(e) => setSaveActualTracking(e.target.checked)}
+                className="h-4 w-4 rounded border-ts-border text-ts-accent focus:ring-ts-accent/30"
+              />
+              <span className="text-sm font-medium text-ts-text-1">Save actual vehicle tracking with this trip</span>
+            </label>
+          </div>
+        )}
+
+
         {/* Map */}
         <div className={`${routeMode === 'Map' ? 'grid' : 'hidden'} relative flex-1 min-h-[450px] overflow-hidden bg-ts-surface sm:rounded-3xl sm:border sm:border-ts-border`}>
           <LogMap
             visible={routeMode === 'Map'}
             fullRoute={fullRoute}
             fullGeometry={fullGeometry}
+            actualGeometry={vehicleMode === 'Bus' && saveActualTracking ? actualGeometry : null}
             highlightedGeometry={riddenRoute?.geometry ?? fullGeometry}
             onStopClick={isCustomTrip ? () => {} : (id) => { setSelectedStopId(id); setStopSheetOpen(true); }}
             fromStopId={fromStopId}
@@ -1431,7 +1713,7 @@ export default function LogPage() {
           />
 
             {/* Mobile Floating Overlay */}
-            <div className="pointer-events-none absolute inset-x-0 top-3 flex flex-col items-center gap-3 px-3 sm:hidden">
+            <div className="pointer-events-none absolute inset-x-0 top-3 flex flex-col items-center gap-3 px-3 pr-[70px] sm:hidden">
               <div className="pointer-events-auto w-full rounded-2xl border border-ts-border bg-ts-bg/85 p-3 shadow-xl backdrop-blur-md">
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
@@ -1521,10 +1803,12 @@ export default function LogPage() {
                     </div>
 
                     {/* Card */}
-                    <button
-                      type="button"
+                    <div
+                      role="button"
+                      tabIndex={0}
                       onClick={() => { setSelectedStopId(stop.id); setStopSheetOpen(isSelected ? !stopSheetOpen : true); }}
-                      className={`flex-1 mb-2 rounded-3xl border p-3.5 text-left transition active:scale-[0.99] ${
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedStopId(stop.id); setStopSheetOpen(isSelected ? !stopSheetOpen : true); } }}
+                      className={`flex-1 mb-2 rounded-3xl border p-3.5 text-left transition active:scale-[0.99] cursor-pointer ${
                         stop.id < 0
                           ? 'border-amber-500/40 bg-amber-500/5'
                           : isSelected && stopSheetOpen
@@ -1599,7 +1883,7 @@ export default function LogPage() {
                           </button>
                         </div>
                       )}
-                    </button>
+                    </div>
                   </div>
 
                   {/* Add-stop button */}
@@ -1742,7 +2026,7 @@ export default function LogPage() {
                 >
                   <GripVertical className="mx-auto mb-1 h-3 w-3 text-ts-text-3" />
                   <div className="truncate text-xs font-bold text-ts-text-1">{[unit.unit_number, unit.unit_reg].filter(Boolean).join(' - ') || 'New unit'}</div>
-                  <div className="mt-0.5 truncate text-[10px] text-ts-text-3">{unit.unit_type || '—'}</div>
+                  <div className="mt-0.5 truncate text-[10px] text-ts-text-3">{unit.unit_type || '-'}</div>
                   <div className="mx-auto mt-3 aspect-[24/16] w-3/4 rounded-lg border border-ts-border-soft" style={{ background: unit.livery_left || 'linear-gradient(135deg, rgba(52,208,100,0.18), rgba(20,30,23,1))' }} />
                 </div>
               );

@@ -211,6 +211,14 @@ export default defineSchema({
     vehicle_key: v.optional(v.string()),
     vehicle_keys: v.optional(v.array(v.string())),
     coupling_events: v.optional(v.any()),
+    // Bus-specific: actual vs scheduled tracking via vehicle journey
+    vehicle_journey_id: v.optional(v.number()),
+    bustimes_trip_id: v.optional(v.number()),
+    time_aware_polyline: v.optional(v.string()),
+    scheduled_geometry: v.optional(v.any()),
+    actual_geometry: v.optional(v.any()),
+    scheduled_route: v.optional(v.any()),
+    actual_route: v.optional(v.any()),
   })
     .index("by_user", ["user"])
     .index("by_user_and_operator", ["user", "operator"])
@@ -224,6 +232,13 @@ export default defineSchema({
     full_route: v.optional(v.any()),
     ridden_route: v.optional(v.any()),
     full_locations: v.optional(v.any()),
+    vehicle_journey_id: v.optional(v.number()),
+    bustimes_trip_id: v.optional(v.number()),
+    scheduled_route: v.optional(v.any()),
+    actual_route: v.optional(v.any()),
+    scheduled_geometry: v.optional(v.any()),
+    actual_geometry: v.optional(v.any()),
+    time_aware_polyline: v.optional(v.string()),
     updated_at: v.number(),
   })
     .index("by_tripId", ["tripId"])
