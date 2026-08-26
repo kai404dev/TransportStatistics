@@ -344,14 +344,34 @@ async function batchAttachRouteDetails(ctx: QueryCtx, trips: Doc<"tripLogs">[]) 
       const existing = routeMap.get(key);
       // Merge: prefer inline for tracking fields, but fill missing full_route from details
       // If details' full_route is empty, fallback to scheduled_route
-      const detailFull = detail.full_route as unknown as unknown[] | undefined;
-      const detailRidden = detail.ridden_route as unknown as unknown[] | undefined;
-      const detailLoc = detail.full_locations as unknown as unknown[] | undefined;
-      const fallbackFull = (Array.isArray(detailFull) && detailFull.length > 0 ? detailFull : undefined) ??
+      const detailFull = detail.full_route as unknown;
+      const detailRidden = detail.ridden_route as unknown;
+      const detailLoc = detail.full_locations as unknown;
+      const isDetailFullPresent =
+        detailFull != null &&
+        ((Array.isArray(detailFull) && (detailFull as unknown[]).length > 0) ||
+          (typeof detailFull === 'object' &&
+            detailFull !== null &&
+            (Array.isArray((detailFull as { stops?: unknown }).stops) ||
+              Array.isArray((detailFull as { coordinates?: unknown }).coordinates) ||
+              (detailFull as { geometry?: { coordinates?: unknown } }).geometry != null)));
+      const isDetailRiddenPresent =
+        detailRidden != null &&
+        ((Array.isArray(detailRidden) && (detailRidden as unknown[]).length > 0) ||
+          (typeof detailRidden === 'object' &&
+            detailRidden !== null &&
+            (Array.isArray((detailRidden as { stops?: unknown }).stops) ||
+              Array.isArray((detailRidden as { coordinates?: unknown }).coordinates) ||
+              (detailRidden as { geometry?: { coordinates?: unknown } }).geometry != null ||
+              // Fallback: any non-null object is considered present (preserves 5-stop ridden)
+              true)));
+      const isDetailLocPresent =
+        detailLoc != null && Array.isArray(detailLoc) && (detailLoc as unknown[]).length > 0;
+      const fallbackFull = (isDetailFullPresent ? (detailFull as unknown) : undefined) ??
         (Array.isArray(d.scheduled_route as unknown[]) && (d.scheduled_route as unknown[]).length > 0 ? d.scheduled_route : undefined) ??
         existing?.full_route;
-      const fallbackRidden = (Array.isArray(detailRidden) && detailRidden.length > 0 ? detailRidden : undefined) ?? existing?.ridden_route;
-      const fallbackLoc = (Array.isArray(detailLoc) && detailLoc.length > 0 ? detailLoc : undefined) ?? existing?.full_locations;
+      const fallbackRidden = (isDetailRiddenPresent ? (detailRidden as unknown) : undefined) ?? existing?.ridden_route;
+      const fallbackLoc = (isDetailLocPresent ? (detailLoc as unknown) : undefined) ?? existing?.full_locations;
       routeMap.set(key, {
         full_route: fallbackFull,
         ridden_route: fallbackRidden,

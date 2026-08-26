@@ -816,12 +816,13 @@ export default function LogPage() {
           if (adjFrom !== -1 && adjTo !== -1 && adjFrom <= adjTo) {
             activeRoute = route.slice(adjFrom, adjTo + 1);
           } else {
-            activeRoute = route;
+            // Keep the saved ridden as-is instead of falling back to the full 24-stop route
+            activeRoute = riddenRouteStops.length > 0 ? riddenRouteStops : route;
           }
         } else if (riddenRouteStops.length > 1) {
           const routeIdSet = new Set(route.map((s) => s.id));
           const riddenValidById = riddenRouteStops.every((s) => routeIdSet.has(s.id));
-          activeRoute = riddenValidById ? riddenRouteStops : route;
+          activeRoute = riddenValidById ? riddenRouteStops : riddenRouteStops.length > 0 ? riddenRouteStops : route;
         } else {
           activeRoute = route;
         }

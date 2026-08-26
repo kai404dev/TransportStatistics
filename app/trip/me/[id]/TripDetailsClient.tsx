@@ -257,6 +257,33 @@ function getStopCoordinates(stop: RouteStopLike, fallback?: StopRecord | null) {
   return [lon, lat] as [number, number];
 }
 
+function dedupeCoordinates(coordinates: [number, number][]) {
+  return coordinates.filter((c, i, a) => i === 0 || a[i - 1][0] !== c[0] || a[i - 1][1] !== c[1]);
+}
+
+function isRouteCircularForUpdate(fullRoute: Array<{ stop?: { location?: [number, number] | null; name?: string | null }; id?: number }>): boolean {
+  if (fullRoute.length < 2) return false;
+  const first = fullRoute[0] as { stop?: { name?: string | null; location?: [number, number] | null }; id?: number };
+  const last = fullRoute[fullRoute.length - 1] as { stop?: { name?: string | null; location?: [number, number] | null }; id?: number };
+  const firstLoc = (first as { stop?: { location?: [number, number] | null } })?.stop?.location;
+  const lastLoc = (last as { stop?: { location?: [number, number] | null } })?.stop?.location;
+  const firstName = (first as { stop?: { name?: string | null } })?.stop?.name;
+  const lastName = (last as { stop?: { name?: string | null } })?.stop?.name;
+  if (firstName && lastName && firstName === lastName) return true;
+  if (firstLoc && lastLoc && firstLoc.length === 2 && lastLoc.length === 2) {
+    if (firstLoc[0] === lastLoc[0] && firstLoc[1] === lastLoc[1]) return true;
+  }
+  const seen = new Set<number>();
+  for (const s of fullRoute) {
+    const id = (s as { id?: number }).id;
+    if (typeof id === 'number') {
+      if (seen.has(id)) return true;
+      seen.add(id);
+    }
+  }
+  return false;
+}
+
 function getAccentClasses(type: string) {
   switch (type) {
     case 'Rail':
@@ -724,14 +751,15 @@ export function TripDetailsClient({ data, isOwner = true }: Props) {
       const operator_slug = getString('operator_slug', trip.operator_slug);
       const service_date =
         typeof payload.service_date === 'number' ? (payload.service_date as number) : trip.service_date;
-      const origin_name = getString('origin_name', trip.origin_name);
-      const origin_stop_code = getString('origin_stop_code', trip.origin_stop_code);
-      const destination_name = getString('destination_name', trip.destination_name);
-      const destination_stop_code = getString('destination_stop_code', trip.destination_stop_code);
-      const scheduled_departure = getString('scheduled_departure', trip.scheduled_departure);
-      const scheduled_arrival = getString('scheduled_arrival', trip.scheduled_arrival);
-      const actual_departure = getNullableString('actual_departure') ?? trip.actual_departure;
-      const actual_arrival = getNullableString('actual_arrival') ?? trip.actual_arrival;
+      // Baseline trip header from payload (may be full-service endpoints) - will be overridden by ridden slice endpoints below
+      let origin_name = getString('origin_name', trip.origin_name);
+      let origin_stop_code = getString('origin_stop_code', trip.origin_stop_code);
+      let destination_name = getString('destination_name', trip.destination_name);
+      let destination_stop_code = getString('destination_stop_code', trip.destination_stop_code);
+      let scheduled_departure = getString('scheduled_departure', trip.scheduled_departure);
+      let scheduled_arrival = getString('scheduled_arrival', trip.scheduled_arrival);
+      let actual_departure: string | undefined = getNullableString('actual_departure') ?? trip.actual_departure ?? undefined;
+      let actual_arrival: string | undefined = getNullableString('actual_arrival') ?? trip.actual_arrival ?? undefined;
 
       // Bus tracking fields - prefer fresh, fall back to existing
       const bustimes_service_id =
@@ -754,64 +782,169 @@ export function TripDetailsClient({ data, isOwner = true }: Props) {
       const scheduled_route = (payload.scheduled_route as unknown) ?? trip.scheduled_route ?? null;
       const actual_route = (payload.actual_route as unknown) ?? trip.actual_route ?? null;
 
-      // Full route: prefer scheduled (intended) when tracking exists, otherwise fresh bustimes data
+      // Keep the user's saved stop lists exactly - do not replace full/ridden with fresh.
+      // Only refresh times/polyline/geometries. This guarantees "Edit" still shows the same boarding/alighting
+      // selection (e.g. Normanton→Peartree stays, not expanded to Derby→Alvaston) while still updating the map traces.
       const freshScheduled = payload.scheduled_route as unknown as unknown[] | undefined;
       const freshFullStops =
         (Array.isArray(freshScheduled) && freshScheduled.length > 0 ? (freshScheduled as unknown[]) : null) ??
         (payload.full_route as unknown as unknown[] | undefined) ??
         (payload.full_locations as unknown as unknown[] | undefined) ??
         null;
-      const freshFullRoute: unknown = freshFullStops ?? trip.full_route ?? null;
 
-      // Rebuild ridden to cover the entire updated route so the blue "ridden" line expands
-      // (fixes early-log case where ridden was a truncated prefix). Keep geometry from actual GPS when available.
-      const buildRiddenForFull = (): unknown => {
-        if (!freshFullStops || freshFullStops.length === 0) return trip.ridden_route ?? null;
-        const polylinePath =
+      // Build lookup of fresh stop data by atco code/name for per-stop time/track refresh
+      const freshByCode = new Map<string, unknown>();
+      const freshByName = new Map<string, unknown>();
+      if (freshFullStops) {
+        for (const s of freshFullStops as Array<{ stop?: { stop_code?: string | null; name?: string | null } }>) {
+          const code = (s as { stop?: { stop_code?: string | null } }).stop?.stop_code;
+          if (code) freshByCode.set(code, s);
+          const name = (s as { stop?: { name?: string | null } }).stop?.name?.trim().toLowerCase();
+          if (name && !freshByName.has(name)) freshByName.set(name, s);
+        }
+      }
+
+      const normalizeStops = (raw: unknown): Array<{ id?: number; stop?: { stop_code?: string | null; name?: string | null; location?: [number, number] | null }; track?: unknown; scheduled_departure?: string | null; scheduled_arrival?: string | null; actual_departure?: string | null; actual_arrival?: string | null }> => {
+        if (Array.isArray(raw)) return raw as Array<{ id?: number; stop?: { stop_code?: string | null; name?: string | null; location?: [number, number] | null }; track?: unknown; scheduled_departure?: string | null; scheduled_arrival?: string | null; actual_departure?: string | null; actual_arrival?: string | null }>;
+        if (!raw || typeof raw !== 'object') return [];
+        const p = raw as { stops?: unknown; full_locations?: unknown };
+        if (Array.isArray(p.stops)) return p.stops as Array<{ id?: number; stop?: { stop_code?: string | null; name?: string | null; location?: [number, number] | null }; track?: unknown; scheduled_departure?: string | null; scheduled_arrival?: string | null; actual_departure?: string | null; actual_arrival?: string | null }>;
+        if (Array.isArray(p.full_locations)) return p.full_locations as Array<{ id?: number; stop?: { stop_code?: string | null; name?: string | null; location?: [number, number] | null }; track?: unknown; scheduled_departure?: string | null; scheduled_arrival?: string | null; actual_departure?: string | null; actual_arrival?: string | null }>;
+        return [];
+      };
+      const mergeStopsWithFresh = (stops: Array<{ id?: number; stop?: { stop_code?: string | null; name?: string | null; location?: [number, number] | null }; track?: unknown; scheduled_departure?: string | null; scheduled_arrival?: string | null; actual_departure?: string | null; actual_arrival?: string | null }>): typeof stops => {
+        if (!freshFullStops || stops.length === 0) return stops;
+        return stops.map((old) => {
+          const code = old.stop?.stop_code;
+          const name = old.stop?.name?.trim().toLowerCase();
+          const fresh = (code && (freshByCode.get(code) as typeof old)) || (name && (freshByName.get(name) as typeof old)) || null;
+          if (!fresh) return old;
+          // Keep original id/stop identity (so Edit mapping stays valid) but refresh times/track from fresh
+          return {
+            ...old,
+            scheduled_departure: (fresh as { scheduled_departure?: string | null }).scheduled_departure ?? old.scheduled_departure,
+            scheduled_arrival: (fresh as { scheduled_arrival?: string | null }).scheduled_arrival ?? old.scheduled_arrival,
+            actual_departure: (fresh as { actual_departure?: string | null }).actual_departure ?? old.actual_departure,
+            actual_arrival: (fresh as { actual_arrival?: string | null }).actual_arrival ?? old.actual_arrival,
+            track: (fresh as { track?: unknown }).track ?? old.track,
+          };
+        });
+      };
+
+      // Keep original full/ridden stop lists (guarantees Edit shows same selection), but refresh their per-stop times/tracks
+      const originalFullStops = normalizeStops(trip.full_route ?? (trip as unknown as { full_locations?: unknown }).full_locations ?? trip.scheduled_route);
+      const effectiveOriginalFull = originalFullStops.length > 0 ? originalFullStops : normalizeStops(trip.scheduled_route);
+      const mergedFullStops = mergeStopsWithFresh(effectiveOriginalFull);
+      const freshFullRoute: unknown = mergedFullStops.length > 0 ? mergedFullStops : trip.full_route ?? null;
+
+      const buildRiddenForUpdate = (): unknown => {
+        const rRaw = trip.ridden_route as unknown;
+        if (!rRaw) return null;
+        // If ridden is exactly the same as full (whole ride), keep it in sync with merged full
+        const rStopsRaw = normalizeStops(rRaw);
+        if (rStopsRaw.length === 0) {
+          // Ridden stored as object with geometry but no stops array? Preserve as is but update geometry below
+          return trip.ridden_route ?? null;
+        }
+        const mergedRiddenStops = mergeStopsWithFresh(rStopsRaw);
+        // Preserve original ridden object shape, just refresh stops + geometry
+        const orig = rRaw as { stops?: unknown; geometry?: unknown; from_stop_id?: unknown; to_stop_id?: unknown; origin_name?: unknown; destination_name?: unknown };
+        // Build new geometry clipped to the preserved ridden segment using fresh polyline
+        const polyPath =
           (payload.actual_geometry as { coordinates?: unknown } | null)?.coordinates ??
           (payload as unknown as { polyline_path?: unknown }).polyline_path ??
           (payload.scheduled_geometry as { coordinates?: unknown } | null)?.coordinates ??
           null;
-        const dedupe = (coords: [number, number][]) =>
-          coords.filter((c, i, a) => i === 0 || a[i - 1][0] !== c[0] || a[i - 1][1] !== c[1]);
-        let riddenCoords: [number, number][] | null = null;
-        if (Array.isArray(polylinePath) && (polylinePath as unknown[]).length > 1) {
-          const cand = polylinePath as [number, number][];
-          if (cand.every((p) => Array.isArray(p) && p.length === 2 && typeof p[0] === 'number')) {
-            riddenCoords = dedupe(cand);
-          }
-        }
-        if (!riddenCoords || riddenCoords.length === 0) {
-          const built: [number, number][] = [];
-          for (const s of freshFullStops as Array<{ track?: unknown; stop?: { location?: unknown } }>) {
-            const track = s.track as unknown;
-            if (Array.isArray(track) && track.length > 0) {
-              built.push(...(track as [number, number][]));
-            } else {
-              const loc = s.stop?.location as unknown;
-              if (Array.isArray(loc) && loc.length === 2 && typeof loc[0] === 'number' && typeof loc[1] === 'number') {
-                built.push(loc as [number, number]);
+        let newGeometry: { type: string; coordinates: [number, number][] } | null = null;
+        if (Array.isArray(polyPath) && (polyPath as unknown[]).length > 1) {
+          const path = polyPath as [number, number][];
+          // Clip polyline to the preserved ridden segment's first/last stop locations
+          const firstLoc = (mergedRiddenStops[0] as { stop?: { location?: [number, number] | null } }).stop?.location as [number, number] | null | undefined;
+          const lastLoc = (mergedRiddenStops[mergedRiddenStops.length - 1] as { stop?: { location?: [number, number] | null } }).stop?.location as [number, number] | null | undefined;
+          const findClosest = (target: [number, number] | null | undefined): number | null => {
+            if (!target || target.length !== 2) return null;
+            let best = Infinity; let idx = 0;
+            for (let i = 0; i < path.length; i++) {
+              const d = Math.hypot(path[i][0] - target[0], path[i][1] - target[1]);
+              if (d < best) { best = d; idx = i; }
+            }
+            if (best > 0.01) return null;
+            return idx;
+          };
+          let a = findClosest(firstLoc);
+          let b = findClosest(lastLoc);
+          if (a === null || b === null) {
+            // Fallback to using tracks of the preserved ridden stops
+            const built: [number, number][] = [];
+            for (const s of mergedRiddenStops as Array<{ track?: unknown; stop?: { location?: unknown } }>) {
+              const tr = (s as { track?: unknown }).track;
+              if (Array.isArray(tr) && tr.length > 0) built.push(...(tr as [number, number][]));
+              else {
+                const loc = (s as { stop?: { location?: unknown } }).stop?.location;
+                if (Array.isArray(loc) && loc.length === 2) built.push(loc as [number, number]);
               }
             }
+            if (built.length > 0) newGeometry = { type: 'LineString', coordinates: dedupeCoordinates(built) };
+          } else {
+            const s = Math.min(a, b); const e = Math.max(a, b);
+            const clipped = dedupeCoordinates(path.slice(s, e + 1));
+            if (clipped.length > 0) newGeometry = { type: 'LineString', coordinates: clipped };
           }
-          if (built.length > 0) riddenCoords = dedupe(built);
+          // If clipping produced nothing, fallback to original geometry
+          if (!newGeometry) {
+            const origGeom = (orig as { geometry?: { coordinates?: [number, number][] } | null }).geometry;
+            if (origGeom && Array.isArray(origGeom.coordinates) && origGeom.coordinates.length > 0) newGeometry = origGeom as { type: string; coordinates: [number, number][] };
+          }
+        } else {
+          const origGeom = (orig as { geometry?: { coordinates?: [number, number][] } | null }).geometry;
+          if (origGeom && Array.isArray(origGeom.coordinates) && origGeom.coordinates.length > 0) newGeometry = origGeom as { type: string; coordinates: [number, number][] };
+          else {
+            const built: [number, number][] = [];
+            for (const s of mergedRiddenStops as Array<{ track?: unknown; stop?: { location?: unknown } }>) {
+              const tr = (s as { track?: unknown }).track;
+              if (Array.isArray(tr) && tr.length > 0) built.push(...(tr as [number, number][]));
+              else {
+                const loc = (s as { stop?: { location?: unknown } }).stop?.location;
+                if (Array.isArray(loc) && loc.length === 2) built.push(loc as [number, number]);
+              }
+            }
+            if (built.length > 0) newGeometry = { type: 'LineString', coordinates: dedupeCoordinates(built) };
+          }
         }
-        // Fallback to scheduled geometry if we still have nothing
-        if ((!riddenCoords || riddenCoords.length === 0) && scheduled_geometry && Array.isArray((scheduled_geometry as unknown as { coordinates?: unknown }).coordinates)) {
-          riddenCoords = (scheduled_geometry as { coordinates: [number, number][] }).coordinates;
-        }
-        const first = (freshFullStops as Array<{ id?: unknown; stop?: { name?: string } }>)[0];
-        const last = (freshFullStops as Array<{ id?: unknown; stop?: { name?: string } }>)[freshFullStops.length - 1];
+        // If original ridden was an array (not object), return merged array
+        if (Array.isArray(rRaw)) return mergedRiddenStops as unknown;
         return {
-          from_stop_id: (first as { id?: number })?.id ?? null,
-          to_stop_id: (last as { id?: number })?.id ?? null,
-          origin_name: (first as { stop?: { name?: string } })?.stop?.name ?? origin_name,
-          destination_name: (last as { stop?: { name?: string } })?.stop?.name ?? destination_name,
-          stops: freshFullStops,
-          geometry: riddenCoords && riddenCoords.length > 0 ? { type: 'LineString', coordinates: riddenCoords } : null,
+          ...(orig as object),
+          stops: mergedRiddenStops,
+          geometry: newGeometry ?? (orig as { geometry?: unknown }).geometry ?? null,
         };
       };
-      const freshRiddenRoute = buildRiddenForFull();
+      const freshRiddenRoute = buildRiddenForUpdate();
+
+      // Derive trip header (origin/destination/times) from the preserved ridden slice, not the full service terminus.
+      // This prevents a partial ride (e.g. Derby→Peartree) being overwritten to the bus's full Derby→Alvaston.
+      if (
+        freshRiddenRoute &&
+        typeof freshRiddenRoute === 'object' &&
+        Array.isArray((freshRiddenRoute as { stops?: unknown }).stops) &&
+        ((freshRiddenRoute as { stops: unknown[] }).stops.length as number) > 0
+      ) {
+        const rStops = (freshRiddenRoute as { stops: Array<{ stop?: { stop_code?: string | null; name?: string | null }; scheduled_departure?: string | null; scheduled_arrival?: string | null; actual_departure?: string | null; actual_arrival?: string | null }> }).stops;
+        const rFirst = rStops[0];
+        const rLast = rStops[rStops.length - 1];
+        if (rFirst?.stop?.name) origin_name = rFirst.stop.name as string;
+        if ((rFirst as { stop?: { stop_code?: string | null } })?.stop?.stop_code) origin_stop_code = (rFirst as { stop?: { stop_code?: string | null } }).stop!.stop_code as string;
+        if (rLast?.stop?.name) destination_name = rLast.stop.name as string;
+        if ((rLast as { stop?: { stop_code?: string | null } })?.stop?.stop_code) destination_stop_code = (rLast as { stop?: { stop_code?: string | null } }).stop!.stop_code as string;
+        const rFirstSchedDep = (rFirst as { scheduled_departure?: string | null; scheduled_arrival?: string | null }).scheduled_departure ?? (rFirst as { scheduled_departure?: string | null; scheduled_arrival?: string | null }).scheduled_arrival;
+        const rLastSchedArr = (rLast as { scheduled_arrival?: string | null; scheduled_departure?: string | null }).scheduled_arrival ?? (rLast as { scheduled_arrival?: string | null; scheduled_departure?: string | null }).scheduled_departure;
+        const rFirstActDep = (rFirst as { actual_departure?: string | null; actual_arrival?: string | null }).actual_departure ?? (rFirst as { actual_departure?: string | null; actual_arrival?: string | null }).actual_arrival;
+        const rLastActArr = (rLast as { actual_arrival?: string | null; actual_departure?: string | null }).actual_arrival ?? (rLast as { actual_arrival?: string | null; actual_departure?: string | null }).actual_departure;
+        if (typeof rFirstSchedDep === 'string' && rFirstSchedDep) scheduled_departure = rFirstSchedDep;
+        if (typeof rLastSchedArr === 'string' && rLastSchedArr) scheduled_arrival = rLastSchedArr;
+        if (typeof rFirstActDep === 'string' && rFirstActDep) actual_departure = rFirstActDep;
+        if (typeof rLastActArr === 'string' && rLastActArr) actual_arrival = rLastActArr;
+      }
 
       // Keep existing vehicle/notes/coupling data
       const units = Array.isArray(trip.units) ? trip.units : [];
