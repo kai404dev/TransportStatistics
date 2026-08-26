@@ -18,13 +18,13 @@ import {
   BadgeInfo,
   Bus,
   CalendarDays,
-  Copy,
   Link2,
   Link2Off,
   LoaderCircle,
   MapPinned,
   NotebookText,
   Plus,
+  RefreshCw,
   Route,
   TrainFront,
   TramFront,
@@ -343,9 +343,11 @@ export function TripDetailsClient({ data, isOwner = true }: Props) {
   const { theme } = useTheme();
   const router = useRouter();
   const deleteTrip = useMutation(api.functions.trips.deleteTrip);
+  const updateTrip = useMutation(api.functions.trips.updateTrip);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
-  const [shareState, setShareState] = useState<'idle' | 'copied'>('idle');
+  const [updateState, setUpdateState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [updateError, setUpdateError] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
 
   const trip = data.trip;
@@ -674,11 +676,196 @@ export function TripDetailsClient({ data, isOwner = true }: Props) {
 
   const routeTitle = `${trip.origin_name} → ${trip.destination_name}`;
 
-  const handleShare = async () => {
-    if (typeof window === 'undefined') return;
-    await navigator.clipboard.writeText(window.location.href);
-    setShareState('copied');
-    window.setTimeout(() => setShareState('idle'), 1800);
+  const handleUpdate = async () => {
+    if (updateState === 'loading') return;
+    setUpdateState('loading');
+    setUpdateError('');
+
+    try {
+      const dateKey = dateKeyFromTimestamp(trip.service_date);
+      let fetchUrl: string | null = null;
+
+      // Prefer vehicle journey (actual GPS trace) if we have it, otherwise fall back to trip ID
+      const bustimesServiceId = (trip as unknown as { bustimes_service_id?: number }).bustimes_service_id;
+      if (trip.vehicle_journey_id) {
+        fetchUrl = `/api/log?journey_id=${encodeURIComponent(String(trip.vehicle_journey_id))}`;
+      } else if (trip.bustimes_trip_id) {
+        fetchUrl = `/api/log?uid=${encodeURIComponent(String(trip.bustimes_trip_id))}&date=${encodeURIComponent(dateKey)}&type=bus`;
+      } else if (bustimesServiceId) {
+        // Last resort - bustimes service ID with date may still resolve
+        fetchUrl = `/api/log?uid=${encodeURIComponent(String(bustimesServiceId))}&date=${encodeURIComponent(dateKey)}&type=bus`;
+      }
+
+      if (!fetchUrl) {
+        throw new Error('This trip has no bustimes identifiers (trip/journey ID) to refresh.');
+      }
+
+      const res = await fetch(fetchUrl, { cache: 'no-store' });
+      const payload = (await res.json()) as Record<string, unknown> & {
+        error?: string;
+        message?: string;
+        details?: string;
+      };
+
+      if (!res.ok) {
+        throw new Error(payload.details || payload.message || payload.error || 'Failed to fetch updated bustimes data');
+      }
+
+      const getString = (key: string, fallback: string) =>
+        typeof payload[key] === 'string' && (payload[key] as string).trim().length > 0
+          ? (payload[key] as string)
+          : fallback;
+
+      const getNullableString = (key: string) =>
+        typeof payload[key] === 'string' ? (payload[key] as string) : null;
+
+      const service_number = getString('service_number', trip.service_number);
+      const operator = getString('operator', trip.operator);
+      const operator_slug = getString('operator_slug', trip.operator_slug);
+      const service_date =
+        typeof payload.service_date === 'number' ? (payload.service_date as number) : trip.service_date;
+      const origin_name = getString('origin_name', trip.origin_name);
+      const origin_stop_code = getString('origin_stop_code', trip.origin_stop_code);
+      const destination_name = getString('destination_name', trip.destination_name);
+      const destination_stop_code = getString('destination_stop_code', trip.destination_stop_code);
+      const scheduled_departure = getString('scheduled_departure', trip.scheduled_departure);
+      const scheduled_arrival = getString('scheduled_arrival', trip.scheduled_arrival);
+      const actual_departure = getNullableString('actual_departure') ?? trip.actual_departure;
+      const actual_arrival = getNullableString('actual_arrival') ?? trip.actual_arrival;
+
+      // Bus tracking fields - prefer fresh, fall back to existing
+      const bustimes_service_id =
+        typeof payload.bustimes_service_id === 'number'
+          ? (payload.bustimes_service_id as number)
+          : (trip as unknown as { bustimes_service_id?: number }).bustimes_service_id;
+      const bustimes_service_slug =
+        typeof payload.bustimes_service_slug === 'string'
+          ? (payload.bustimes_service_slug as string)
+          : (trip as unknown as { bustimes_service_slug?: string }).bustimes_service_slug;
+      const bustimes_trip_id =
+        typeof payload.bustimes_trip_id === 'number' ? (payload.bustimes_trip_id as number) : trip.bustimes_trip_id;
+      const vehicle_journey_id =
+        typeof payload.vehicle_journey_id === 'number' ? (payload.vehicle_journey_id as number) : trip.vehicle_journey_id;
+      const time_aware_polyline =
+        typeof payload.time_aware_polyline === 'string' ? (payload.time_aware_polyline as string) : trip.time_aware_polyline;
+
+      const scheduled_geometry = (payload.scheduled_geometry as unknown) ?? trip.scheduled_geometry ?? null;
+      const actual_geometry = (payload.actual_geometry as unknown) ?? trip.actual_geometry ?? null;
+      const scheduled_route = (payload.scheduled_route as unknown) ?? trip.scheduled_route ?? null;
+      const actual_route = (payload.actual_route as unknown) ?? trip.actual_route ?? null;
+
+      // Full route: prefer scheduled (intended) when tracking exists, otherwise fresh bustimes data
+      const freshScheduled = payload.scheduled_route as unknown as unknown[] | undefined;
+      const freshFullStops =
+        (Array.isArray(freshScheduled) && freshScheduled.length > 0 ? (freshScheduled as unknown[]) : null) ??
+        (payload.full_route as unknown as unknown[] | undefined) ??
+        (payload.full_locations as unknown as unknown[] | undefined) ??
+        null;
+      const freshFullRoute: unknown = freshFullStops ?? trip.full_route ?? null;
+
+      // Rebuild ridden to cover the entire updated route so the blue "ridden" line expands
+      // (fixes early-log case where ridden was a truncated prefix). Keep geometry from actual GPS when available.
+      const buildRiddenForFull = (): unknown => {
+        if (!freshFullStops || freshFullStops.length === 0) return trip.ridden_route ?? null;
+        const polylinePath =
+          (payload.actual_geometry as { coordinates?: unknown } | null)?.coordinates ??
+          (payload as unknown as { polyline_path?: unknown }).polyline_path ??
+          (payload.scheduled_geometry as { coordinates?: unknown } | null)?.coordinates ??
+          null;
+        const dedupe = (coords: [number, number][]) =>
+          coords.filter((c, i, a) => i === 0 || a[i - 1][0] !== c[0] || a[i - 1][1] !== c[1]);
+        let riddenCoords: [number, number][] | null = null;
+        if (Array.isArray(polylinePath) && (polylinePath as unknown[]).length > 1) {
+          const cand = polylinePath as [number, number][];
+          if (cand.every((p) => Array.isArray(p) && p.length === 2 && typeof p[0] === 'number')) {
+            riddenCoords = dedupe(cand);
+          }
+        }
+        if (!riddenCoords || riddenCoords.length === 0) {
+          const built: [number, number][] = [];
+          for (const s of freshFullStops as Array<{ track?: unknown; stop?: { location?: unknown } }>) {
+            const track = s.track as unknown;
+            if (Array.isArray(track) && track.length > 0) {
+              built.push(...(track as [number, number][]));
+            } else {
+              const loc = s.stop?.location as unknown;
+              if (Array.isArray(loc) && loc.length === 2 && typeof loc[0] === 'number' && typeof loc[1] === 'number') {
+                built.push(loc as [number, number]);
+              }
+            }
+          }
+          if (built.length > 0) riddenCoords = dedupe(built);
+        }
+        // Fallback to scheduled geometry if we still have nothing
+        if ((!riddenCoords || riddenCoords.length === 0) && scheduled_geometry && Array.isArray((scheduled_geometry as unknown as { coordinates?: unknown }).coordinates)) {
+          riddenCoords = (scheduled_geometry as { coordinates: [number, number][] }).coordinates;
+        }
+        const first = (freshFullStops as Array<{ id?: unknown; stop?: { name?: string } }>)[0];
+        const last = (freshFullStops as Array<{ id?: unknown; stop?: { name?: string } }>)[freshFullStops.length - 1];
+        return {
+          from_stop_id: (first as { id?: number })?.id ?? null,
+          to_stop_id: (last as { id?: number })?.id ?? null,
+          origin_name: (first as { stop?: { name?: string } })?.stop?.name ?? origin_name,
+          destination_name: (last as { stop?: { name?: string } })?.stop?.name ?? destination_name,
+          stops: freshFullStops,
+          geometry: riddenCoords && riddenCoords.length > 0 ? { type: 'LineString', coordinates: riddenCoords } : null,
+        };
+      };
+      const freshRiddenRoute = buildRiddenForFull();
+
+      // Keep existing vehicle/notes/coupling data
+      const units = Array.isArray(trip.units) ? trip.units : [];
+      const notes = trip.notes;
+      const coupling_events = trip.coupling_events;
+
+      // Only include bustimes geometry fields for Bus trips where we have tracking data
+      const isBus = trip.transport_type === 'Bus';
+      const hasTracking = Boolean(vehicle_journey_id || time_aware_polyline || actual_geometry || scheduled_geometry);
+
+      await updateTrip({
+        tripId: trip._id,
+        service_number,
+        operator,
+        operator_slug,
+        service_date,
+        transport_type: trip.transport_type as 'Rail' | 'Bus' | 'Tram' | 'Ferry' | 'Taxi' | 'Other',
+        bustimes_service_id,
+        bustimes_service_slug,
+        bustimes_trip_id: isBus && hasTracking ? bustimes_trip_id : trip.bustimes_trip_id,
+        vehicle_journey_id: isBus && hasTracking ? vehicle_journey_id : trip.vehicle_journey_id,
+        time_aware_polyline: isBus && hasTracking ? (time_aware_polyline as string | undefined) : trip.time_aware_polyline as string | undefined,
+        scheduled_geometry: (isBus && hasTracking ? scheduled_geometry : trip.scheduled_geometry) as unknown as never,
+        actual_geometry: (isBus && hasTracking ? actual_geometry : trip.actual_geometry) as unknown as never,
+        scheduled_route: (isBus && hasTracking ? scheduled_route : trip.scheduled_route) as unknown as never,
+        actual_route: (isBus && hasTracking ? actual_route : trip.actual_route) as unknown as never,
+        origin_name,
+        origin_stop_code,
+        destination_name,
+        destination_stop_code,
+        scheduled_departure,
+        actual_departure: actual_departure ?? undefined,
+        scheduled_arrival,
+        actual_arrival: actual_arrival ?? undefined,
+        full_route: (freshFullRoute ?? trip.full_route) as unknown as never,
+        ridden_route: (freshRiddenRoute ?? trip.ridden_route) as unknown as never,
+        units: units as never,
+        notes: notes as string | undefined,
+        coupling_events: coupling_events as unknown as never,
+      } as unknown as never);
+
+      setUpdateState('success');
+      // Allow Convex live query + server page to revalidate
+      router.refresh();
+      window.setTimeout(() => setUpdateState('idle'), 2000);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Update failed';
+      setUpdateError(msg);
+      setUpdateState('error');
+      window.setTimeout(() => {
+        setUpdateState('idle');
+        setUpdateError('');
+      }, 3500);
+    }
   };
 
   const handleDelete = async () => {
@@ -803,19 +990,6 @@ export function TripDetailsClient({ data, isOwner = true }: Props) {
                     <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-5 rounded-full bg-emerald-500/70 inline-block" /> Scheduled (intended) route</span>
                     <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-5 rounded-full bg-orange-500 inline-block" style={{background: 'repeating-linear-gradient(90deg,#f97316 0 4px, transparent 4px 8px)'}} /> Actual GPS trace</span>
                     <span className="inline-flex items-center gap-1.5"><span className="h-1.5 w-5 rounded-full bg-blue-500 inline-block" /> Ridden section</span>
-                  </div>
-                ) : null}
-                {hasActualTracking && trip.vehicle_journey_id ? (
-                  <div className="text-[11px] font-mono text-ts-text-3 px-1">
-                    Journey {trip.vehicle_journey_id} {trip.bustimes_trip_id ? `· Trip ${trip.bustimes_trip_id}` : ''} · {actualCoordinates.length} pts ·{' '}
-                    <a
-                      href={`https://bustimes.org/vehiclejourneys/${trip.vehicle_journey_id}/details/`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="underline hover:text-ts-accent"
-                    >
-                      bustimes.org
-                    </a>
                   </div>
                 ) : null}
               </div>
@@ -1066,6 +1240,16 @@ export function TripDetailsClient({ data, isOwner = true }: Props) {
                   </Link>
                   <button
                     type="button"
+                    onClick={handleUpdate}
+                    disabled={updateState === 'loading'}
+                    className="inline-flex items-center gap-2 rounded-full border border-ts-border bg-ts-surface-2 px-4 py-2 text-sm text-ts-text-1 transition hover:border-ts-accent/50 hover:bg-ts-accent/10 hover:text-ts-accent disabled:cursor-not-allowed disabled:opacity-60"
+                    title="Refresh times, polyline and route from bustimes"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${updateState === 'loading' ? 'animate-spin' : ''}`} />
+                    {updateState === 'loading' ? 'Updating…' : updateState === 'success' ? 'Updated' : updateState === 'error' ? 'Failed' : 'Update'}
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleDelete}
                     disabled={isDeleting}
                     className="inline-flex items-center gap-2 rounded-full border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-sm text-rose-300 transition hover:border-rose-400/50 hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-60"
@@ -1078,15 +1262,16 @@ export function TripDetailsClient({ data, isOwner = true }: Props) {
               ) : (
                 <IWasHereButton tripId={trip._id} tripUserId={trip.user} />
               )}
-              <button
-                type="button"
-                onClick={handleShare}
-                className="inline-flex items-center gap-2 rounded-full border border-ts-border bg-ts-surface-2 px-4 py-2 text-sm text-ts-text-1 transition hover:border-ts-accent/50 hover:bg-ts-accent/10 hover:text-ts-accent"
-              >
-                <Copy className="h-4 w-4" />
-                {shareState === 'copied' ? 'Link copied' : 'Share trip'}
-              </button>
             </div>
+            {updateError ? (
+              <div className="mt-3 rounded-xl border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+                {updateError}
+              </div>
+            ) : updateState === 'success' ? (
+              <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
+                Trip refreshed from bustimes — times, route and polyline updated.
+              </div>
+            ) : null}
           </SectionCard>
         </div>
       </div>
