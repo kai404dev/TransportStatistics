@@ -181,6 +181,7 @@ export default defineSchema({
         v.literal("Tram"),
         v.literal("Ferry"),
         v.literal("Taxi"),
+        v.literal("Flight"),
         v.literal("Other")  
     ),
     // Wrapped in v.optional()

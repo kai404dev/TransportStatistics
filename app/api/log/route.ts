@@ -125,11 +125,24 @@ export const GET = withApiKeyAuth(async (_auth, request: Request) => {
   const serviceUid = searchParams.get('service_uid');
   const tripId = searchParams.get('trip_id');
   const journeyId = searchParams.get('journey_id');
+  const flightNumber = searchParams.get('flight_number');
   const uid = searchParams.get('uid') ?? serviceUid ?? serviceId ?? tripId ?? journeyId;
   const date = searchParams.get('date') ?? searchParams.get('service_date'); 
   const type = searchParams.get('type') || (serviceRid ? 'train' : (serviceId || tripId ? 'bus' : 'train'));
   const debug = searchParams.get('debug') === 'true';
   const showPass = searchParams.get('show_pass') === 'true';
+
+  if (flightNumber) {
+    try {
+      return await handleFlightRequest(flightNumber, date, debug);
+    } catch (err: any) {
+      log(`Flight request error: ${err.message}`);
+      return NextResponse.json({
+        error: 'Failed to load flight.',
+        message: err.message,
+      }, { status: 500 });
+    }
+  }
 
   if (serviceRid) {
     try {
@@ -179,6 +192,127 @@ export const GET = withApiKeyAuth(async (_auth, request: Request) => {
     }, { status: 500 });
   }
 });
+
+// ─── Flight request ─────────────────────────────────────────────────────────
+function stripAirportDisplaySuffix(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const idx = value.indexOf('•');
+  const stripped = (idx >= 0 ? value.slice(0, idx) : value).trim();
+  return stripped || null;
+}
+
+function flightServiceDate(dateParam: string | null, scheduledDateLabel: string | null | undefined): number {
+  if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+    const ts = new Date(`${dateParam}T00:00:00`).getTime();
+    if (!Number.isNaN(ts)) return ts;
+  }
+  const now = new Date();
+  if (scheduledDateLabel) {
+    const parsed = new Date(`${scheduledDateLabel} ${now.getFullYear()}`);
+    if (!Number.isNaN(parsed.getTime())) return parsed.getTime();
+  }
+  return now.getTime();
+}
+
+async function handleFlightRequest(flightNumber: string, date: string | null, debug: boolean) {
+  const skylinkApiKey = process.env.SKYLINK_API_KEY;
+  if (!skylinkApiKey) {
+    log('ERROR: SKYLINK_API_KEY not configured');
+    return NextResponse.json({ error: 'Flight data temporarily unavailable - server configuration error' }, { status: 500 });
+  }
+
+  const flightNbr = flightNumber.trim().toUpperCase();
+  const url = `https://data.skylinkapi.com/v3/flight_status/${encodeURIComponent(flightNbr)}`;
+  log(`Calling SkyLink flight_status: ${url}`);
+
+  const res = await fetch(url, { headers: { 'x-api-key': skylinkApiKey } });
+  if (!res.ok) {
+    const bodyText = await res.text().catch(() => '');
+    log(`SkyLink flight_status non-2xx: ${res.status} body: ${bodyText.slice(0, 300)}`);
+    if (res.status === 401 || res.status === 403) {
+      return NextResponse.json({ error: 'Flight provider authentication failed' }, { status: 502 });
+    }
+    return NextResponse.json({ error: `Flight not found (${flightNbr})` }, { status: res.status === 404 ? 404 : 502 });
+  }
+
+  const data = await res.json();
+  const dep = data?.departure ?? {};
+  const arr = data?.arrival ?? {};
+
+  const cleanTime = (value: string | null | undefined): string | null => {
+    const v = (value ?? '').trim();
+    return v && v !== '--:--' ? v : null;
+  };
+  const schedDep = cleanTime(dep?.scheduled_time) || '';
+  const actualDep = cleanTime(dep?.actual_time);
+  const schedArr = cleanTime(arr?.scheduled_time) || '';
+  const actualArr = cleanTime(arr?.estimated_time) || cleanTime(arr?.actual_time);
+
+  const originName = dep?.airport_full || dep?.airport || 'Unknown Origin';
+  const destName = arr?.airport_full || arr?.airport || 'Unknown Destination';
+
+  // User-facing code is the 3-letter IATA (strip "• City"); the 4-letter code
+  // (atcoCode) is used internally to resolve the airport stop + coordinates.
+  const originDisplayCode = stripAirportDisplaySuffix(dep?.airport) || '';
+  const destDisplayCode = stripAirportDisplaySuffix(arr?.airport) || '';
+
+  const originStop = originDisplayCode ? await fetchQuery(api.functions.stops.getStopByAirportCode, { code: originDisplayCode }) : null;
+  const destStop = destDisplayCode ? await fetchQuery(api.functions.stops.getStopByAirportCode, { code: destDisplayCode }) : null;
+
+  const notes = [
+    dep?.terminal ? `Departure terminal ${dep.terminal}` : '',
+    dep?.gate ? `Departure gate ${dep.gate}` : '',
+    arr?.terminal ? `Arrival terminal ${arr.terminal}` : '',
+    arr?.gate ? `Arrival gate ${arr.gate}` : '',
+  ].filter(Boolean).join(' · ');
+
+  const full_route = [
+    {
+      id: 0,
+      stop: {
+        name: originName,
+        stop_code: originStop?.crsCode || originDisplayCode,
+        location: originStop && typeof originStop.lon === 'number' && typeof originStop.lat === 'number' ? [originStop.lon, originStop.lat] : null,
+      },
+      scheduled_arrival: null,
+      scheduled_departure: schedDep || null,
+    },
+    {
+      id: 1,
+      stop: {
+        name: destName,
+        stop_code: destStop?.crsCode || destDisplayCode,
+        location: destStop && typeof destStop.lon === 'number' && typeof destStop.lat === 'number' ? [destStop.lon, destStop.lat] : null,
+      },
+      scheduled_arrival: schedArr || null,
+      scheduled_departure: null,
+    },
+  ];
+
+  const responsePayload: Record<string, any> = {
+    service_number: data?.flight_number || flightNbr,
+    operator: data?.airline || 'Unknown',
+    operator_slug: (data?.airline || 'unknown').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'unknown',
+    service_date: flightServiceDate(date, dep?.scheduled_date),
+    origin_name: originName,
+    origin_stop_code: full_route[0]?.stop?.stop_code ?? '',
+    destination_name: destName,
+    destination_stop_code: full_route[1]?.stop?.stop_code ?? '',
+    scheduled_departure: schedDep,
+    actual_departure: actualDep || undefined,
+    scheduled_arrival: schedArr,
+    actual_arrival: actualArr || undefined,
+    full_route,
+    full_locations: full_route,
+    unit: null,
+    notes: notes || undefined,
+    flight_status: data?.status || null,
+  };
+
+  if (debug) responsePayload._debug = data;
+
+  return NextResponse.json(responsePayload);
+}
 
 const resolveServiceRidPayload = (payload: any, serviceRid?: string) => {
   // 1. Resolve UID

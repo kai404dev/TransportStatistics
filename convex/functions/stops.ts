@@ -36,6 +36,24 @@ export const getGroupByCode = query({
   }
 });
 
+// Resolve an airport/station by either its 3-letter IATA (crsCode) or its
+// 4-letter code (atcoCode) so flight logging can map an airport to its stop
+// and pull its coordinates.
+export const getStopByAirportCode = query({
+  args: {
+    code: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const byCrs = await ctx.db.query("stops").withIndex("by_crsCode", (q) =>
+      q.eq("crsCode", args.code)
+    ).first();
+    if (byCrs) return byCrs;
+    return await ctx.db.query("stops").withIndex("by_atcoCode", (q) =>
+      q.eq("atcoCode", args.code)
+    ).first();
+  }
+});
+
 export const list = query({
   args: {},
   handler: async (ctx) => {

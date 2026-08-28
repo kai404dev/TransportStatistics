@@ -184,6 +184,7 @@ const tripLogArgs = {
     v.literal("Tram"),
     v.literal("Ferry"),
     v.literal("Taxi"),
+    v.literal("Flight"),
     v.literal("Other")
   ),
   bustimes_service_id: v.optional(v.number()),

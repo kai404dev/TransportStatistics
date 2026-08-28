@@ -17,6 +17,7 @@ import {
   Map,
   NotebookText,
   Pencil,
+  Plane,
   Plus,
   Route,
   Save,
@@ -28,8 +29,8 @@ import {
 
 type TabKey = 'Route' | 'Vehicle' | 'Coupling' | 'Service' | 'Notes';
 type RouteMode = 'Map' | 'List';
-type VehicleMode = 'Bus' | 'Train' | 'Tram' | 'Other';
-type StoredTransportType = 'Rail' | 'Bus' | 'Tram' | 'Other';
+type VehicleMode = 'Bus' | 'Train' | 'Tram' | 'Plane' | 'Other';
+type StoredTransportType = 'Rail' | 'Bus' | 'Tram' | 'Flight' | 'Other';
 
 type RouteGeometry = {
   type: 'LineString';
@@ -111,6 +112,7 @@ type ApiLogResponse = {
   error?: string;
   details?: string;
   message?: string;
+  notes?: string;
 };
 
 type ServiceFormState = {
@@ -194,7 +196,14 @@ const TABS: TabKey[] = ['Route', 'Vehicle', 'Coupling', 'Service', 'Notes'];
 const ROUTE_MODES: RouteMode[] = ['Map', 'List'];
 const POINT_MODES = ['Set start', 'Set end'] as const;
 type PointMode = 'start' | 'end';
-const VEHICLE_MODES: VehicleMode[] = ['Bus', 'Train', 'Tram', 'Other'];
+const VEHICLE_MODES: VehicleMode[] = ['Bus', 'Train', 'Tram', 'Plane', 'Other'];
+const VEHICLE_MODE_LABELS: Record<VehicleMode, string> = {
+  Bus: 'Bus',
+  Train: 'Train',
+  Tram: 'Tram',
+  Plane: 'Planes',
+  Other: 'Other',
+};
 
 const EMPTY_SERVICE_FORM: ServiceFormState = {
   service_number: '',
@@ -322,6 +331,7 @@ function transportTypeToVehicleMode(type: StoredTransportType): VehicleMode {
   if (type === 'Rail') return 'Train';
   if (type === 'Tram') return 'Tram';
   if (type === 'Bus') return 'Bus';
+  if (type === 'Flight') return 'Plane';
   return 'Other';
 }
 
@@ -556,6 +566,7 @@ function mapVehicleModeToTransportType(mode: VehicleMode): StoredTransportType {
   if (mode === 'Train') return 'Rail';
   if (mode === 'Tram') return 'Tram';
   if (mode === 'Bus') return 'Bus';
+  if (mode === 'Plane') return 'Flight';
   return 'Other';
 }
 
@@ -583,6 +594,11 @@ function resolveRequest(searchParams: URLSearchParams): RequestResolution {
   const journeyID = searchParams.get('journey_id');
   if (journeyID) {
     return { url: `/api/log?journey_id=${encodeURIComponent(journeyID)}`, vehicleMode: 'Bus', date: '', label: `Bus Journey ${journeyID}` };
+  }
+  const flightNbr = searchParams.get('flight_number');
+  if (flightNbr) {
+    const flightDate = searchParams.get('date') ?? '';
+    return { url: `/api/log?flight_number=${encodeURIComponent(flightNbr)}&date=${encodeURIComponent(flightDate)}`, vehicleMode: 'Plane', date: flightDate, label: `Flight ${flightNbr}` };
   }
   throw new Error('Oops we couldn\'t find that service, please send this links and any vehicle details to Kai.');
 }
@@ -907,6 +923,12 @@ export default function LogPage() {
         const nowTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
         const customDate = params.get('custom_date') || todayDate;
         const customTime = params.get('custom_time') || nowTime;
+        const prefillServiceNumber = params.get('service_number') || '';
+        const prefillOperator = params.get('operator') || '';
+        const prefillOperatorSlug = params.get('operator_slug') || '';
+        const prefillDestinationName = params.get('destination_name') || '';
+        const prefillDestinationStopCode = params.get('destination_stop_code') || '';
+        const prefillTransportType = params.get('transport_type') || '';
 
         const startStop: RouteStop = {
           id: 0,
@@ -931,13 +953,20 @@ export default function LogPage() {
         setToStopId(null);
         setSelectedStopId(0);
         setSourceLabel(`Custom trip from ${stopName}`);
-        setVehicleMode('Bus');
+        setVehicleMode(prefillTransportType === 'Rail' ? 'Train' : prefillTransportType === 'Tram' ? 'Tram' : prefillTransportType === 'Bus' ? 'Bus' : prefillTransportType === 'Flight' ? 'Plane' : 'Other');
         setUnits([]);
         setSelectedUnitIndex(0);
         setNotes('');
         setCouplingEvents([]);
         setServiceForm({
           ...EMPTY_SERVICE_FORM,
+          service_number: prefillServiceNumber,
+          operator: prefillOperator,
+          operator_slug: prefillOperatorSlug,
+          origin_name: stopName,
+          origin_stop_code: stopCode,
+          destination_name: prefillDestinationName,
+          destination_stop_code: prefillDestinationStopCode,
           service_date: customDate,
           scheduled_departure: customTime,
         });
@@ -1003,7 +1032,7 @@ export default function LogPage() {
         setSelectedStopId(startStop?.id ?? null);
         setFromStopId(routeForSelection.length > 1 ? startStop?.id ?? null : null);
         setToStopId(routeForSelection.length > 1 ? lastForSelection?.id ?? null : null);
-        setNotes('');
+        setNotes(safeString(payload.notes));
         setCouplingEvents([]);
         setServiceForm({
           service_number: safeString(payload.service_number),
@@ -1132,7 +1161,7 @@ export default function LogPage() {
   }
 
   function addUnit() {
-    if (vehicleMode === 'Bus') return;
+    if (vehicleMode === 'Bus' && units.length > 0) return;
     setUnits((c) => { const next = [...c, { ...EMPTY_UNIT }]; setSelectedUnitIndex(next.length - 1); return next; });
   }
 
@@ -1515,7 +1544,7 @@ export default function LogPage() {
         operator: serviceForm.operator.trim() || 'Unknown',
         operator_slug: serviceForm.operator_slug.trim() || 'unknown',
         service_date: new Date(`${serviceForm.service_date}T00:00:00`).getTime(),
-        transport_type: mapVehicleModeToTransportType(vehicleMode) as 'Rail' | 'Bus' | 'Tram' | 'Other',
+        transport_type: mapVehicleModeToTransportType(vehicleMode) as 'Rail' | 'Bus' | 'Tram' | 'Flight' | 'Other',
         bustimes_service_id: typeof parsedBustimesServiceId === 'number' && !Number.isNaN(parsedBustimesServiceId) ? parsedBustimesServiceId : undefined,
         bustimes_service_slug: serviceForm.bustimes_service_slug.trim() || undefined,
         bustimes_trip_id: isBusWithTracking && bustimesTripId ? bustimesTripId : undefined,
@@ -1630,13 +1659,15 @@ export default function LogPage() {
                 onChange={(v) => setRouteMode(v as RouteMode)}
               />
             </div>
-            <div className="mt-3">
-              <SegmentedControl
-                options={[...POINT_MODES]}
-                value={pointMode === 'start' ? 'Set start' : 'Set end'}
-                onChange={(v) => setPointMode(v === 'Set start' ? 'start' : 'end')}
-              />
-            </div>
+            {isCustomTrip && (
+              <div className="mt-3">
+                <SegmentedControl
+                  options={[...POINT_MODES]}
+                  value={pointMode === 'start' ? 'Set start' : 'Set end'}
+                  onChange={(v) => setPointMode(v === 'Set start' ? 'start' : 'end')}
+                />
+              </div>
+            )}
             {addStopAfterId !== null && (
               <div className="mt-3 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-3">
                 <p className="mb-2 text-xs font-semibold text-amber-400">Add custom stop</p>
@@ -1748,7 +1779,7 @@ export default function LogPage() {
             fullGeometry={fullGeometry}
             actualGeometry={vehicleMode === 'Bus' && saveActualTracking ? actualGeometry : null}
             highlightedGeometry={riddenRoute?.geometry ?? fullGeometry}
-            onStopClick={(id) => { selectStopForActivePoint(id); setSelectedStopId(id); setStopSheetOpen(true); }}
+            onStopClick={(id) => { if (isCustomTrip) selectStopForActivePoint(id); setSelectedStopId(id); setStopSheetOpen(true); }}
             fromStopId={fromStopId}
             toStopId={toStopId}
             onMapClick={isCustomTrip || addStopAfterId !== null ? handleMapClick : null}
@@ -1849,8 +1880,8 @@ export default function LogPage() {
                     <div
                       role="button"
                       tabIndex={0}
-                      onClick={() => { selectStopForActivePoint(stop.id); setSelectedStopId(stop.id); setStopSheetOpen(isSelected ? !stopSheetOpen : true); }}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectStopForActivePoint(stop.id); setSelectedStopId(stop.id); setStopSheetOpen(isSelected ? !stopSheetOpen : true); } }}
+                      onClick={() => { if (isCustomTrip) selectStopForActivePoint(stop.id); setSelectedStopId(stop.id); setStopSheetOpen(isSelected ? !stopSheetOpen : true); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (isCustomTrip) selectStopForActivePoint(stop.id); setSelectedStopId(stop.id); setStopSheetOpen(isSelected ? !stopSheetOpen : true); } }}
                       className={`flex-1 mb-2 rounded-3xl border p-3.5 text-left transition active:scale-[0.99] cursor-pointer ${
                         stop.id < 0
                           ? 'border-amber-500/40 bg-amber-500/5'
@@ -1955,6 +1986,7 @@ export default function LogPage() {
       if (m === 'Bus') return Bus;
       if (m === 'Train') return TrainFront;
       if (m === 'Tram') return TramFront;
+      if (m === 'Plane') return Plane;
       return NotebookText;
     };
 
@@ -1975,13 +2007,14 @@ export default function LogPage() {
                   }`}
                 >
                   <Icon className="h-4 w-4" />
-                  {mode}
+                  {VEHICLE_MODE_LABELS[mode]}
                 </button>
               );
             })}
           </div>
         </Card>
 
+        {vehicleMode !== 'Plane' && (
         <Card>
           <p className="mb-2 text-[11px] font-semibold tracking-widest text-ts-text-3">Search vehicle</p>
           <div ref={unitSearchRef} className="relative">
@@ -2027,6 +2060,7 @@ export default function LogPage() {
             )}
           </div>
         </Card>
+        )}
 
         {/* Unit carousel */}
         <Card>
@@ -2072,14 +2106,14 @@ export default function LogPage() {
                 </div>
               );
             })}
-            {vehicleMode !== 'Bus' && (
+            {(vehicleMode !== 'Bus' || units.length === 0) && (
               <button
                 type="button"
                 onClick={addUnit}
                 className="flex min-w-[110px] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-ts-border bg-ts-surface-2 p-4 text-xs font-semibold text-ts-text-2 transition hover:border-ts-accent hover:text-ts-accent active:scale-95"
               >
                 <Plus className="h-5 w-5" />
-                Add unit
+                {vehicleMode === 'Bus' ? 'Add bus' : 'Add unit'}
               </button>
             )}
           </div>
@@ -2120,7 +2154,7 @@ export default function LogPage() {
             </div>
           ) : (
             <div className="py-8 text-center text-sm text-ts-text-3">
-              {vehicleMode === 'Bus' ? 'No unit found for this service.' : 'Search for a vehicle or add a unit above.'}
+              {vehicleMode === 'Bus' ? 'No unit found for this service.' : vehicleMode === 'Plane' ? 'No aircraft found — add a unit above.' : 'Search for a vehicle or add a unit above.'}
             </div>
           )}
         </Card>

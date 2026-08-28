@@ -181,6 +181,61 @@ function getFlightCacheKey(iataOrIcao: string, date?: string, time?: string): st
   return `${iataOrIcao}|${date || ''}|${time || ''}`;
 }
 
+// --- Flight links ---
+function splitFlightNumber(flightNumber: string | null | undefined): { airline: string; number: string } {
+  const num = (flightNumber || '').trim().toUpperCase();
+  const m = num.match(/^([A-Z]+)(.+)$/);
+  if (m) return { airline: m[1], number: m[2].trim() };
+  return { airline: num, number: num };
+}
+
+function datePartsFromScheduled(scheduledDeparture: string | null | undefined): { year: string; month: string; day: string } {
+  if (scheduledDeparture && /^\d{4}-\d{2}-\d{2}/.test(scheduledDeparture)) {
+    return {
+      year: scheduledDeparture.slice(0, 4),
+      month: scheduledDeparture.slice(5, 7),
+      day: scheduledDeparture.slice(8, 10),
+    };
+  }
+  const now = new Date();
+  return {
+    year: String(now.getFullYear()),
+    month: String(now.getMonth() + 1).padStart(2, '0'),
+    day: String(now.getDate()).padStart(2, '0'),
+  };
+}
+
+function buildFlightStatsUrl(flightNumber: string | null | undefined, scheduledDeparture: string | null | undefined): string {
+  const { airline, number } = splitFlightNumber(flightNumber);
+  const { year, month, day } = datePartsFromScheduled(scheduledDeparture);
+  return `https://www.flightstats.com/v2/flight-tracker/${airline}/${encodeURIComponent(number)}?year=${year}&month=${month}&date=${day}`;
+}
+
+function buildFlightLogUrl(
+  flightNumber: string | null | undefined,
+  scheduledDeparture: string | null | undefined,
+): string {
+  const { airline, number } = splitFlightNumber(flightNumber);
+  let dateYYYYMMDD = '';
+  if (scheduledDeparture && /^\d{4}-\d{2}-\d{2}/.test(scheduledDeparture)) {
+    dateYYYYMMDD = scheduledDeparture.slice(0, 10);
+  }
+  const params = new URLSearchParams({
+    flight_number: `${airline} ${number}`,
+  });
+  if (dateYYYYMMDD) params.set('date', dateYYYYMMDD);
+  return `/log?${params.toString()}`;
+}
+
+// SkyLink sometimes returns destinations like "BHX • Birmingham". For the user
+// we show only the leading code; internal 4-letter codes come from flight_status.
+function stripAirportDisplaySuffix(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const idx = value.indexOf('•');
+  const stripped = (idx >= 0 ? value.slice(0, idx) : value).trim();
+  return stripped || null;
+}
+
 // --- Auth Cache ---
 let cachedToken: string | null = null;
 let tokenExpiry: number = 0;
@@ -616,7 +671,7 @@ export const GET = withApiKeyAuth(async (_auth, request: Request) => {
         const flightNumber: string | null = f.Flight || f.flight_number || f.flight || f.flightNumber || f.number || null;
         const airlineName: string | null = f.Airline || f.airline?.name || f.airline || f.carrier || null;
         const airlineCode: string | null = f.AirlineCode || f.airline?.iata || f.airline_iata || f.airlineCode || null;
-        const destination: string | null = f.Destination || f.destination_city || f.destination || f.Origin || f.origin || f.destination_airport || f.dest || null;
+        const destination: string | null = stripAirportDisplaySuffix(f.IATA || f.iata || f.Destination || f.destination_city || f.destination || f.Origin || f.origin || f.destination_airport || f.dest);
         const schedTimeRaw: string | null = f.Time || f.scheduled_time || f.scheduledTime || f.scheduled_departure || null;
         const statusRaw: string | null = f.Status || f.status || null;
         const terminal: string | null = f.Terminal || f.terminal || null;
@@ -698,7 +753,7 @@ export const GET = withApiKeyAuth(async (_auth, request: Request) => {
         return {
           id,
           service: flightNumber,
-          service_link: '#',
+          service_link: buildFlightStatsUrl(flightNumber, scheduled_departure),
           origin: airportCodeForDisplay,
           destination: destination || f.IATA || f.iata || null,
           operator: airlineName,
@@ -720,7 +775,7 @@ export const GET = withApiKeyAuth(async (_auth, request: Request) => {
           },
           terminal: terminal,
           gate: gate,
-          log_link: '#',
+          log_link: buildFlightLogUrl(flightNumber, scheduled_departure),
           debug: debug ? f : undefined,
           // internal helper for filtering, remove later
           _schedMinutes: scheduledMinutes,
