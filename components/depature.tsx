@@ -288,6 +288,13 @@ function buildDeparturesContent(data: any, state: any, popupId: string, stopId: 
           badges.push(`<span class="dep-status-badge" style="background:${C.surface2};color:${C.text2};border:1px solid ${C.borderSoft};">${d.vehicle_info.carrages} carriages</span>`);
         }
 
+        if (d.mode === "flight") {
+          const flightLocation = [d.gate ? `Gate ${d.gate}` : "", d.terminal ? `Terminal ${d.terminal}` : ""].filter(Boolean).join(" · ");
+          if (flightLocation) {
+            badges.push(`<span class="dep-status-badge" style="background:${C.surface2};color:${C.text2};border:1px solid ${C.borderSoft};">${flightLocation}</span>`);
+          }
+        }
+
         if (!d.tfl_current_location && d._atcoCode && stopLookup?.[d._atcoCode]) {
           badges.push(`<span class="dep-status-badge" style="background:${C.surface2};color:${C.text2};border:1px solid ${C.borderSoft};">${stopLookup[d._atcoCode].indicator || stopLookup[d._atcoCode].commonName}</span>`);
         }
@@ -386,11 +393,6 @@ export function useDeparturePanel() {
     let stopLookup: Record<string, { commonName: string; indicator: string }> | undefined;
 
     try {
-      if (mode === "airport") {
-        setPanelHTML(buildEmptyPopup(stop.commonName, stop._id, typeName, codes, "This is an airport — there are no bus or rail departures here."));
-        return;
-      }
-
       const targetISO = state.timeMode === "datetime"
         ? (() => {
             const customDate = state.customDate || formatLocalDateInput(new Date());
@@ -430,7 +432,10 @@ export function useDeparturePanel() {
           });
         }
 
-        if (mode === "train" && stop.crsCode) {
+        if (mode === "airport") {
+          const code = stop.crsCode || stop.atcoCode || "";
+          res = await fetch(buildSingleUrl("flight", code));
+        } else if (mode === "train" && stop.crsCode) {
           // Rail stop with a CRS code: RTT first, before falling back to
           // bustimes/TFL (batch, including any cluster stops).
           res = await fetch(buildSingleUrl("train", stop.crsCode));
