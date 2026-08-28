@@ -92,8 +92,11 @@ export const Stops = ({
       const typeObj = stopTypes.find((t) => t._id === stop.stopTypeId);
       const name = typeObj?.name.toLowerCase() || "";
       const group = getGroupForType(name);
-      const mode = group?.name === "rail" ? "train" : "bus";
-      const codes = [stop.crsCode ? `CRS ${stop.crsCode}` : "", stop.atcoCode].filter(Boolean);
+      const mode = group?.name === "rail" ? "train" : group?.name === "airport" ? "airport" : "bus";
+      const codes = [
+        ...(mode === "train" && stop.crsCode ? [`CRS ${stop.crsCode}`] : []),
+        stop.atcoCode,
+      ].filter(Boolean);
 
       const el = document.createElement("div");
       el.style.cssText = `width:20px;height:20px;border-radius:50%;background-color:${

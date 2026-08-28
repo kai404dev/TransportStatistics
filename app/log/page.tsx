@@ -192,6 +192,8 @@ type RequestResolution = {
 
 const TABS: TabKey[] = ['Route', 'Vehicle', 'Coupling', 'Service', 'Notes'];
 const ROUTE_MODES: RouteMode[] = ['Map', 'List'];
+const POINT_MODES = ['Set start', 'Set end'] as const;
+type PointMode = 'start' | 'end';
 const VEHICLE_MODES: VehicleMode[] = ['Bus', 'Train', 'Tram', 'Other'];
 
 const EMPTY_SERVICE_FORM: ServiceFormState = {
@@ -667,6 +669,7 @@ export default function LogPage() {
   const [journeyFetchError, setJourneyFetchError] = useState('');
   const [fromStopId, setFromStopId] = useState<number | null>(null);
   const [toStopId, setToStopId] = useState<number | null>(null);
+  const [pointMode, setPointMode] = useState<PointMode>('start');
   const [selectedStopId, setSelectedStopId] = useState<number | null>(null);
   const [stopSheetOpen, setStopSheetOpen] = useState(false);
   const [addStopAfterId, setAddStopAfterId] = useState<number | null>(null);
@@ -898,8 +901,12 @@ export default function LogPage() {
         const stopCode = params.get('stop_code') || '';
         const stopLat = parseFloat(params.get('stop_lat') || '0');
         const stopLon = parseFloat(params.get('stop_lon') || '0');
-        const customDate = params.get('custom_date') || '';
-        const customTime = params.get('custom_time') || '';
+        const now = new Date();
+        const pad = (value: number) => String(value).padStart(2, '0');
+        const todayDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+        const nowTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+        const customDate = params.get('custom_date') || todayDate;
+        const customTime = params.get('custom_time') || nowTime;
 
         const startStop: RouteStop = {
           id: 0,
@@ -1026,32 +1033,55 @@ export default function LogPage() {
   }, [editTrip, editTripId, searchKey, isCustomTrip]);
 
   function handleMapClick(coords: { lng: number; lat: number }) {
-    if (isCustomTrip) {
-      const finishStop: RouteStop = {
-        id: 999999,
-        stop: { name: 'Custom destination', stop_code: '', location: [coords.lng, coords.lat] },
-        scheduled_departure: null,
-        scheduled_arrival: null,
-      };
-      setFullRoute((prev) => {
-        if (prev.length <= 1) return [...prev, finishStop];
-        return [...prev.slice(0, 1), finishStop];
-      });
-      setToStopId(999999);
-      setSelectedStopId(999999);
-    } else if (addStopAfterId !== null) {
+    if (addStopAfterId !== null) {
       setCustomStopLocation([coords.lng, coords.lat]);
+      return;
     }
+    const location: [number, number] = [coords.lng, coords.lat];
+
+    if (pointMode === 'start') {
+      setFullRoute((prev) => {
+        if (prev.length === 0) {
+          return [{
+            id: 0,
+            stop: { name: 'Start', stop_code: '', location },
+            scheduled_departure: null,
+            scheduled_arrival: null,
+          }];
+        }
+        const next = [...prev];
+        next[0] = { ...next[0], stop: { ...next[0].stop, location } };
+        return next;
+      });
+      setFromStopId(0);
+      setSelectedStopId(0);
+      return;
+    }
+
+    setFullRoute((prev) => {
+      const existingDestIndex = prev.findIndex((s) => s.id === 999999);
+      if (existingDestIndex !== -1) {
+        const next = [...prev];
+        next[existingDestIndex] = { ...next[existingDestIndex], stop: { ...next[existingDestIndex].stop, location } };
+        return next;
+      }
+      if (prev.length === 0) {
+        return [
+          { id: 0, stop: { name: 'Start', stop_code: '', location: null }, scheduled_departure: null, scheduled_arrival: null },
+          { id: 999999, stop: { name: 'Custom destination', stop_code: '', location }, scheduled_departure: null, scheduled_arrival: null },
+        ];
+      }
+      return [...prev, { id: 999999, stop: { name: 'Custom destination', stop_code: '', location }, scheduled_departure: null, scheduled_arrival: null }];
+    });
+    setToStopId(999999);
+    setSelectedStopId(999999);
   }
 
   useEffect(() => {
     if (!isCustomTrip || fullRoute.length < 2) return;
-    const startStop = fullRoute[0];
-    const finishStop = fullRoute[1];
-    const startLoc = startStop?.stop?.location;
-    const finishLoc = finishStop?.stop?.location;
-    if (startLoc && finishLoc) {
-      setFullGeometry({ type: 'LineString', coordinates: [startLoc, finishLoc] });
+    const geom = buildFullGeometry(fullRoute);
+    if (geom && geom.coordinates.length >= 2) {
+      setFullGeometry(geom);
     }
     syncFormFromRoute(fullRoute, 0, 999999);
   }, [isCustomTrip, fullRoute]);
@@ -1380,6 +1410,11 @@ export default function LogPage() {
     syncFormFromRoute(fullRoute, f, t);
   }
 
+  function selectStopForActivePoint(stopId: number) {
+    if (pointMode === 'start') setStartStop(stopId);
+    else setEndStop(stopId);
+  }
+
   function extractJourneyId(input: string): string | null {
     const trimmed = input.trim();
     if (!trimmed) return null;
@@ -1595,7 +1630,14 @@ export default function LogPage() {
                 onChange={(v) => setRouteMode(v as RouteMode)}
               />
             </div>
-            {addStopAfterId !== null && !isCustomTrip && (
+            <div className="mt-3">
+              <SegmentedControl
+                options={[...POINT_MODES]}
+                value={pointMode === 'start' ? 'Set start' : 'Set end'}
+                onChange={(v) => setPointMode(v === 'Set start' ? 'start' : 'end')}
+              />
+            </div>
+            {addStopAfterId !== null && (
               <div className="mt-3 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-3">
                 <p className="mb-2 text-xs font-semibold text-amber-400">Add custom stop</p>
                 <div className="grid grid-cols-2 gap-2">
@@ -1706,11 +1748,11 @@ export default function LogPage() {
             fullGeometry={fullGeometry}
             actualGeometry={vehicleMode === 'Bus' && saveActualTracking ? actualGeometry : null}
             highlightedGeometry={riddenRoute?.geometry ?? fullGeometry}
-            onStopClick={isCustomTrip ? () => {} : (id) => { setSelectedStopId(id); setStopSheetOpen(true); }}
+            onStopClick={(id) => { selectStopForActivePoint(id); setSelectedStopId(id); setStopSheetOpen(true); }}
             fromStopId={fromStopId}
             toStopId={toStopId}
             onMapClick={isCustomTrip || addStopAfterId !== null ? handleMapClick : null}
-            onStopDragEnd={isCustomTrip ? null : handleStopDragEnd}
+            onStopDragEnd={handleStopDragEnd}
           />
 
             {/* Mobile Floating Overlay */}
@@ -1744,7 +1786,7 @@ export default function LogPage() {
             </div>
 
             {/* Bottom sheet */}
-            {selectedStop && stopSheetOpen && !isCustomTrip && (
+            {selectedStop && stopSheetOpen && (
               <div className="absolute inset-x-0 bottom-0 z-0 rounded-t-3xl border-t border-ts-border bg-ts-bg/98 px-4 pb-12 pt-3 sm:pb-6">
                 <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-ts-border" />
                 <div className="flex items-start justify-between">
@@ -1807,8 +1849,8 @@ export default function LogPage() {
                     <div
                       role="button"
                       tabIndex={0}
-                      onClick={() => { setSelectedStopId(stop.id); setStopSheetOpen(isSelected ? !stopSheetOpen : true); }}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedStopId(stop.id); setStopSheetOpen(isSelected ? !stopSheetOpen : true); } }}
+                      onClick={() => { selectStopForActivePoint(stop.id); setSelectedStopId(stop.id); setStopSheetOpen(isSelected ? !stopSheetOpen : true); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectStopForActivePoint(stop.id); setSelectedStopId(stop.id); setStopSheetOpen(isSelected ? !stopSheetOpen : true); } }}
                       className={`flex-1 mb-2 rounded-3xl border p-3.5 text-left transition active:scale-[0.99] cursor-pointer ${
                         stop.id < 0
                           ? 'border-amber-500/40 bg-amber-500/5'
@@ -1888,8 +1930,7 @@ export default function LogPage() {
                   </div>
 
                   {/* Add-stop button */}
-                  {!isCustomTrip && (
-                    <div className="ml-8 pl-0 mb-2">
+                  <div className="ml-8 pl-0 mb-2">
                       <button
                         type="button"
                         onClick={() => startAddStop(stop.id)}
@@ -1899,7 +1940,6 @@ export default function LogPage() {
                         Add stop after
                       </button>
                     </div>
-                  )}
                 </div>
               );
             })}

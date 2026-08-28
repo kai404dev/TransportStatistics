@@ -386,6 +386,11 @@ export function useDeparturePanel() {
     let stopLookup: Record<string, { commonName: string; indicator: string }> | undefined;
 
     try {
+      if (mode === "airport") {
+        setPanelHTML(buildEmptyPopup(stop.commonName, stop._id, typeName, codes, "This is an airport — there are no bus or rail departures here."));
+        return;
+      }
+
       const targetISO = state.timeMode === "datetime"
         ? (() => {
             const customDate = state.customDate || formatLocalDateInput(new Date());
@@ -425,9 +430,9 @@ export function useDeparturePanel() {
           });
         }
 
-        if (stop.crsCode) {
-          // CRS code present: RTT first, regardless of cluster/mode, before
-          // falling back to bustimes/TFL (batch, including any cluster stops).
+        if (mode === "train" && stop.crsCode) {
+          // Rail stop with a CRS code: RTT first, before falling back to
+          // bustimes/TFL (batch, including any cluster stops).
           res = await fetch(buildSingleUrl("train", stop.crsCode));
 
           let rttHasDepartures = false;

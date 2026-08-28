@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useUser, useClerk, SignOutButton, Show, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import { useMutation, useQuery } from "convex/react";
 import { createRoot, type Root } from "react-dom/client";
@@ -11,7 +11,7 @@ import { useTheme } from "@/components/ThemeProvider";
 import { 
   FileText, Home, User, Users, CheckCircle, Palette, RefreshCw, Edit, Scale,
   Shield, Sun, LogOut, Menu, X, ChevronLeft, ChevronRight, ChartArea, Settings,
-  FolderUp, ArrowLeft, Moon
+  FolderUp, ArrowLeft, Moon, Route,
 } from "lucide-react";
 
 const navLinks = [
@@ -163,6 +163,7 @@ function SettingsPage({
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const { user, isLoaded } = useUser();
   const isStaff = isLoaded && user?.publicMetadata?.is_staff === "true";
   const { openUserProfile } = useClerk();
@@ -575,6 +576,21 @@ export default function Sidebar() {
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto p-2 flex flex-col gap-0.5">
+          {user && (
+            <button
+              type="button"
+              onClick={() => router.push("/log?custom=true")}
+              title={isCollapsed ? "Start custom trip" : ""}
+              className={`flex whitespace-nowrap items-center gap-2.5 px-2.5 py-2 rounded-[6px] text-[13.5px] font-semibold transition-all duration-150 text-ts-text-2 hover:bg-ts-surface-2 hover:border-ts-border-soft ${
+                isCollapsed ? "justify-center" : ""
+              }`}
+            >
+              <div className="w-[18px] h-[20px] flex-shrink-0 flex items-center justify-center opacity-70">
+                <Route size={18} />
+              </div>
+              {!isCollapsed && "Start custom trip"}
+            </button>
+          )}
           {navLinks.map((link) => {
             const isActive = pathname === link.href;
             const Icon = link.icon;
