@@ -227,13 +227,18 @@ function buildFlightLogUrl(
   return `/log?${params.toString()}`;
 }
 
-// SkyLink sometimes returns destinations like "BHX • Birmingham". For the user
-// we show only the leading code; internal 4-letter codes come from flight_status.
-function stripAirportDisplaySuffix(value: string | null | undefined): string | null {
+// SkyLink sometimes returns destinations like "ALC • Alicante". For the user we
+// show the full destination name; the internal 4-letter/3-letter codes come from
+// flight_status / the stop lookup.
+function extractDestinationName(value: string | null | undefined): string | null {
   if (!value) return null;
-  const idx = value.indexOf('•');
-  const stripped = (idx >= 0 ? value.slice(0, idx) : value).trim();
-  return stripped || null;
+  const v = value.trim();
+  const idx = v.indexOf('•');
+  if (idx >= 0) {
+    const name = v.slice(idx + 1).trim();
+    if (name) return name;
+  }
+  return v;
 }
 
 // --- Auth Cache ---
@@ -671,7 +676,7 @@ export const GET = withApiKeyAuth(async (_auth, request: Request) => {
         const flightNumber: string | null = f.Flight || f.flight_number || f.flight || f.flightNumber || f.number || null;
         const airlineName: string | null = f.Airline || f.airline?.name || f.airline || f.carrier || null;
         const airlineCode: string | null = f.AirlineCode || f.airline?.iata || f.airline_iata || f.airlineCode || null;
-        const destination: string | null = stripAirportDisplaySuffix(f.IATA || f.iata || f.Destination || f.destination_city || f.destination || f.Origin || f.origin || f.destination_airport || f.dest);
+        const destination: string | null = extractDestinationName(f.Destination || f.destination_city || f.destination || f.destination_airport || f.dest || f.Origin || f.origin || f.IATA || f.iata);
         const schedTimeRaw: string | null = f.Time || f.scheduled_time || f.scheduledTime || f.scheduled_departure || null;
         const statusRaw: string | null = f.Status || f.status || null;
         const terminal: string | null = f.Terminal || f.terminal || null;

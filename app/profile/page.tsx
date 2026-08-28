@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useQuery, usePaginatedQuery } from "convex/react";
+import { usePaginatedQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { TripRow } from "@/components/TripRow";
 import { CompactTripRow } from "@/components/CompactTripRow";
@@ -65,10 +65,7 @@ export default function ProfilePage() {
     { initialNumItems: 200 },
   );
 
-  const counts = useQuery(api.functions.trips.getMyTripCount, user ? { user: user.id } : "skip");
-
   const sentinelRef = useRef<HTMLDivElement>(null);
-
   // ── Layout preference (comfortable / compact), persisted locally ──
   const [layout, setLayout] = useState<TripLayout>("comfortable");
 
@@ -150,18 +147,6 @@ export default function ProfilePage() {
         {/* Title row */}
         <div className="flex items-center justify-between gap-3 mb-4">
           <h1 className="text-2xl md:text-3xl font-bold text-ts-text-1">My Trips</h1>
-
-          {/* Stats — inline on mobile, same row as title */}
-          <div className="flex items-center gap-4">
-            <div className="text-right">
-              <div className="text-xl md:text-2xl font-bold text-ts-text-1 leading-none">{counts?.trips ?? 0}</div>
-              <div className="text-[10px] md:text-xs text-slate-400 tracking-wider mt-0.5">Trips</div>
-            </div>
-            <div className="text-right">
-              <div className="text-xl md:text-2xl font-bold text-ts-text-1 leading-none">{counts?.days ?? 0}</div>
-              <div className="text-[10px] md:text-xs text-slate-400 tracking-wider mt-0.5">Days</div>
-            </div>
-          </div>
         </div>
 
         {/* Map button + Layout toggle */}
