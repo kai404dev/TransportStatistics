@@ -773,20 +773,29 @@ export const getMyTripsPaginated = query({
 
 export const getMyTripCount = query({
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) return { trips: 0, days: 0 };
+    try {
+      const identity = await ctx.auth.getUserIdentity();
+      if (!identity) return { trips: 0, days: 0 };
 
-    const trips = await getAllUserTrips(ctx, identity.subject);
+      const trips = await getAllUserTrips(ctx, identity.subject);
 
-    const days = new Set(
-      trips.map((t) => {
-        const ts = t.service_date > 1_000_000_000_000 ? t.service_date : t.service_date * 1000;
-        const d = new Date(ts);
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      })
-    ).size;
+      const days = new Set(
+        trips.map((t) => {
+          const sd = typeof t.service_date === "number" ? t.service_date : 0;
+          const ts = sd > 1_000_000_000_000 ? sd : sd * 1000;
+          if (!Number.isFinite(ts) || ts <= 0) return "unknown";
+          const d = new Date(ts);
+          if (Number.isNaN(d.getTime())) return "unknown";
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        })
+      );
+      days.delete("unknown");
 
-    return { trips: trips.length, days };
+      return { trips: trips.length, days: days.size };
+    } catch (e) {
+      console.error("getMyTripCount failed", e);
+      return { trips: 0, days: 0 };
+    }
   },
 });
 
@@ -839,26 +848,36 @@ export const getUserTripsPaginated = query({
 export const getUserTripCount = query({
   args: { userId: v.string() },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) return null;
-    const me = identity.subject;
+    try {
+      const identity = await ctx.auth.getUserIdentity();
+      if (!identity) return { trips: 0, days: 0 };
+      const me = identity.subject;
 
-    if (me !== args.userId) {
-      const isFriend = await areFriends(ctx, me, args.userId);
-      if (!isFriend) return null;
+      if (me !== args.userId) {
+        const isFriend = await areFriends(ctx, me, args.userId);
+        if (!isFriend) return { trips: 0, days: 0 };
+      }
+
+      const trips = await getAllUserTrips(ctx, args.userId);
+
+      const days = new Set(
+        trips.map((t) => {
+          const sd = typeof t.service_date === "number" ? t.service_date : 0;
+          const ts = sd > 1_000_000_000_000 ? sd : sd * 1000;
+          if (!Number.isFinite(ts) || ts <= 0) return "unknown";
+          const d = new Date(ts);
+          if (Number.isNaN(d.getTime())) return "unknown";
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        })
+      );
+      // Don't count malformed dates as a day
+      days.delete("unknown");
+
+      return { trips: trips.length, days: days.size };
+    } catch (e) {
+      console.error("getUserTripCount failed", e);
+      return { trips: 0, days: 0 };
     }
-
-    const trips = await getAllUserTrips(ctx, args.userId);
-
-    const days = new Set(
-      trips.map((t) => {
-        const ts = t.service_date > 1_000_000_000_000 ? t.service_date : t.service_date * 1000;
-        const d = new Date(ts);
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-      })
-    ).size;
-
-    return { trips: trips.length, days };
   },
 });
 
