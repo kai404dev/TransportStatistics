@@ -1,4 +1,5 @@
 import { CheckCircle2, CircleDashed } from "lucide-react";
+import Link from "next/link";
 import type { Vehicle } from "../types";
 
 function normalizeLiveryName(value: unknown) {
@@ -9,7 +10,7 @@ function normalizeCss(value: unknown) {
   return String(value ?? "").replace(/\s+/g, "").toLowerCase();
 }
 
-export function FleetCard({ vehicle }: { vehicle: Vehicle }) {
+export function FleetCard({ vehicle, href }: { vehicle: Vehicle; href: string }) {
   const currentLivery = vehicle.livery?.current_bustimes_livery;
   const rawPreviousLivery = vehicle.livery?.previous_bustimes_livery;
   const previousLivery =
@@ -20,7 +21,9 @@ export function FleetCard({ vehicle }: { vehicle: Vehicle }) {
       : null;
 
   return (
-    <div
+    <Link
+      href={href}
+      aria-label={`View details for vehicle ${vehicle.unit_number || vehicle.reg}`}
       className={`
         group relative flex flex-col rounded-2xl border transition-all duration-150 overflow-hidden
         ${vehicle.withdrawn
@@ -108,6 +111,6 @@ export function FleetCard({ vehicle }: { vehicle: Vehicle }) {
           )}
         </div>
       </div>
-    </div>
+    </Link>
   );
 }
