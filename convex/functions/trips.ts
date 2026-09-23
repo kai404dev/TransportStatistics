@@ -216,14 +216,6 @@ const tripLogUpdateArgs = {
   ...tripLogArgs,
 };
 
-function getTripsAllLimit() {
-  const raw = process.env.TRIPS_ALL_LIMIT;
-  if (!raw) return 2000;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) return 2000;
-  return Math.floor(parsed);
-}
-
 type TripUnitLike = {
   unit_number?: string;
   unit_reg?: string;
@@ -1129,11 +1121,68 @@ export const getUserTripsForDay = query({
   },
 });
 
-// Chunking knobs for the "all trips with routes" path. Route geometry is
-// large, so a single execution can only read/return a bounded number of trips.
-const ROUTES_CHUNK_BATCH_SIZE = 25;
-const ROUTES_CHUNK_MAX_ITEMS = 200;
-const ROUTES_CHUNK_BYTES_READ_RESERVE = 4 * 1024 * 1024;
+// ── Bounded "all trips" feed for the full-log map ──
+// getAllUserTrips collects the whole log (plus every participation doc) in
+// ONE execution, which exceeds the 16MB byte budget on large logs. These two
+// queries page through owned trips and participated trips separately with
+// small server-capped page sizes, so every execution stays bounded. The
+// client follows continueCursor until isDone and merges/dedupes the pages.
+const ALL_TRIPS_PAGE_SIZE = 8;
+const PARTICIPATED_TRIPS_PAGE_SIZE = 5;
+
+export const getMyTripsAllPage = query({
+  args: {
+    user: v.string(),
+    cursor: v.optional(v.string()),
+    includeRoutes: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const result = await ctx.db
+      .query("tripLogs")
+      .withIndex("by_user_date_departure", (q) => q.eq("user", args.user))
+      .order("desc")
+      .paginate({ cursor: args.cursor ?? null, numItems: ALL_TRIPS_PAGE_SIZE });
+
+    const page = args.includeRoutes
+      ? await batchAttachRouteDetails(ctx, result.page)
+      : result.page.map(toTripSummary);
+
+    return {
+      page,
+      continueCursor: result.continueCursor,
+      isDone: result.isDone,
+    };
+  },
+});
+
+export const getMyParticipatedTripsPage = query({
+  args: {
+    user: v.string(),
+    cursor: v.optional(v.string()),
+    includeRoutes: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const participations = await ctx.db
+      .query("tripParticipants")
+      .withIndex("by_user", (q) => q.eq("user", args.user))
+      .order("desc")
+      .paginate({ cursor: args.cursor ?? null, numItems: PARTICIPATED_TRIPS_PAGE_SIZE });
+
+    const trips = (
+      await Promise.all(participations.page.map((p) => ctx.db.get(p.tripId)))
+    ).filter((trip): trip is NonNullable<typeof trip> => trip !== null);
+
+    const page = args.includeRoutes
+      ? await batchAttachRouteDetails(ctx, trips)
+      : trips.map(toTripSummary);
+
+    return {
+      page,
+      continueCursor: participations.continueCursor,
+      isDone: participations.isDone,
+    };
+  },
+});
 
 export const getMyTripsByDate = query({
   args: {
@@ -1141,43 +1190,8 @@ export const getMyTripsByDate = query({
     date: v.string(),
     timeZone: v.optional(v.string()),
     includeRoutes: v.optional(v.boolean()),
-    cursor: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    if (args.date === "all") {
-      const limit = getTripsAllLimit();
-      const trips = (await getAllUserTrips(ctx, args.user)).slice(0, limit);
-
-      if (args.includeRoutes) {
-        // Route data is large — return it in chunks bounded by count and by
-        // the remaining bytes-read budget, so one execution never hits the
-        // 16MB limit. The client follows continueCursor until isDone.
-        const startRaw = args.cursor ? parseInt(args.cursor, 10) : 0;
-        const start = Number.isFinite(startRaw) && startRaw > 0 ? Math.floor(startRaw) : 0;
-
-        const page: Awaited<ReturnType<typeof batchAttachRouteDetails>> = [];
-        let end = start;
-
-        while (end < trips.length && page.length < ROUTES_CHUNK_MAX_ITEMS) {
-          const batchEnd = Math.min(
-            end + ROUTES_CHUNK_BATCH_SIZE,
-            trips.length,
-            start + ROUTES_CHUNK_MAX_ITEMS
-          );
-          page.push(...(await batchAttachRouteDetails(ctx, trips.slice(end, batchEnd))));
-          end = batchEnd;
-
-          const metrics = await ctx.meta.getTransactionMetrics();
-          if (metrics.bytesRead.remaining < ROUTES_CHUNK_BYTES_READ_RESERVE) break;
-        }
-
-        const isDone = end >= trips.length;
-        return { page, continueCursor: isDone ? "" : String(end), isDone };
-      }
-
-      return trips.map(toTripSummary);
-    }
-
     const trips = await getUserTripsForDateRange(ctx, args.user, args.date, args.timeZone);
 
     if (args.includeRoutes) {

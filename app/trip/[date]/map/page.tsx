@@ -63,9 +63,10 @@ export default function TripDateMapPage({ params }: { params: Promise<{ date: st
     !isAll && user?.id ? { user: user.id, date: date, timeZone, includeRoutes: true } : "skip"
   );
 
-  // The "all" view returns route data in chunks (it can exceed Convex's
-  // per-function bytes-read limit in one shot) — fetch chunks sequentially
-  // until the server reports isDone.
+  // The "all" view pages through owned trips and participated trips in
+  // small bounded pages (a whole-log read would exceed Convex's
+  // per-execution bytes-read limit) — follow each cursor until isDone,
+  // then merge and dedupe by trip id.
   useEffect(() => {
     if (!isAll || !user?.id) return;
 
@@ -76,19 +77,44 @@ export default function TripDateMapPage({ params }: { params: Promise<{ date: st
 
     (async () => {
       const acc: any[] = [];
+      const seen = new Set<string>();
+      const pushUnique = (trips: any[]) => {
+        for (const t of trips) {
+          const id = String(t._id);
+          if (seen.has(id)) continue;
+          seen.add(id);
+          acc.push(t);
+        }
+      };
+
       let cursor: string | undefined = undefined;
-
       for (;;) {
-        const res = await convex.query(api.functions.trips.getMyTripsByDate, {
-          user: user.id, date, timeZone, includeRoutes: true, cursor,
-        }) as { page: any[]; continueCursor: string; isDone: boolean };
+        const res: { page: any[]; continueCursor: string; isDone: boolean } =
+          await convex.query(api.functions.trips.getMyTripsAllPage, {
+            user: user.id, includeRoutes: true, cursor,
+          });
 
-        acc.push(...res.page);
+        pushUnique(res.page);
         if (cancelled) return;
         setLoadedCount(acc.length);
 
         if (res.isDone) break;
         cursor = res.continueCursor;
+      }
+
+      let participatedCursor: string | undefined = undefined;
+      for (;;) {
+        const res: { page: any[]; continueCursor: string; isDone: boolean } =
+          await convex.query(api.functions.trips.getMyParticipatedTripsPage, {
+            user: user.id, includeRoutes: true, cursor: participatedCursor,
+          });
+
+        pushUnique(res.page);
+        if (cancelled) return;
+        setLoadedCount(acc.length);
+
+        if (res.isDone) break;
+        participatedCursor = res.continueCursor;
       }
 
       if (!cancelled) setChunkedTrips(acc);
