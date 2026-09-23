@@ -25,8 +25,8 @@ export function FleetRow({ vehicle }: { vehicle: Vehicle }) {
         group relative flex items-center px-3 sm:px-5 h-[72px] sm:h-[80px]
         rounded-2xl border transition-all duration-150
         ${vehicle.withdrawn
-          ? "bg-ts-surface border-white/[0.04] opacity-60"
-          : "bg-ts-surface border-white/[0.06] hover:bg-ts-surface-2 hover:border-white/[0.10]"
+          ? "bg-ts-surface border-[var(--color-ts-border-soft)] opacity-60"
+          : "bg-ts-surface border-[var(--color-ts-border-soft)] hover:bg-ts-surface-2 hover:border-[var(--color-ts-border)]"
         }
       `}
     >
@@ -108,8 +108,8 @@ export function FleetRow({ vehicle }: { vehicle: Vehicle }) {
         <div
           className={`flex items-center justify-center p-2 sm:px-3 sm:py-2 rounded-xl border transition-all ${
             vehicle.ridden
-              ? "bg-[#1e3a1e]/30 text-[#4ade80] border-[#2d5a2d]/50"
-              : "bg-white/[0.03] text-ts-text-1/20 border-white/[0.05]"
+              ? "bg-ts-accent/10 text-ts-accent border-ts-accent/30"
+              : "bg-[var(--color-ts-surface-2)] text-ts-text-1/20 border-[var(--color-ts-border-soft)]"
           }`}
         >
           {vehicle.ridden

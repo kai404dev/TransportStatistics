@@ -42,7 +42,7 @@ export function FriendRequestButton({ targetUserId }: Props) {
       <button
         onClick={() => handleAction(() => removeFriend({ friendId: targetUserId }))}
         disabled={loading}
-        className={`${btnClass} border border-rose-500/30 bg-rose-500/10 text-rose-300 hover:border-rose-400/50 hover:bg-rose-500/20`}
+        className={`${btnClass} border border-rose-500/30 bg-rose-500/10 text-rose-600 hover:border-rose-500/50 hover:bg-rose-500/20`}
       >
         {loading ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <UserX className="h-3.5 w-3.5" />}
         Remove Friend
@@ -68,7 +68,7 @@ export function FriendRequestButton({ targetUserId }: Props) {
             if (incomingRequestId) handleAction(() => declineRequest({ requestId: incomingRequestId }));
           }}
           disabled={loading || !incomingRequestId}
-          className={`${btnClass} border border-ts-border bg-ts-surface text-ts-text-2 hover:border-rose-400/50 hover:bg-rose-500/10 hover:text-rose-300`}
+          className={`${btnClass} border border-ts-border bg-ts-surface text-ts-text-2 hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-600`}
         >
           Decline
         </button>
@@ -81,7 +81,7 @@ export function FriendRequestButton({ targetUserId }: Props) {
       <button
         onClick={() => handleAction(() => cancelRequest({ toUser: targetUserId }))}
         disabled={loading}
-        className={`${btnClass} border border-ts-border bg-ts-surface text-ts-text-2 hover:border-amber-400/50 hover:bg-amber-500/10 hover:text-amber-300`}
+        className={`${btnClass} border border-ts-border bg-ts-surface text-ts-text-2 hover:border-amber-500/50 hover:bg-amber-500/10 hover:text-amber-600`}
       >
         {loading ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Clock className="h-3.5 w-3.5" />}
         Request Sent

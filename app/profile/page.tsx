@@ -89,7 +89,7 @@ export default function ProfilePage() {
           {days.length > 0 && (
             <Link
               href="/trip/all/map"
-              className="flex items-center justify-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-ts-text-1 transition hover:border-ts-accent/50 hover:bg-ts-accent/10 hover:text-ts-accent"
+              className="flex items-center justify-center gap-2 rounded-full border border-ts-border bg-ts-surface px-4 py-2 text-sm font-medium text-ts-text-1 transition hover:border-ts-accent/50 hover:bg-ts-accent/10 hover:text-ts-accent"
             >
               <MapPinned className="h-4 w-4 shrink-0" />
               View all on map
@@ -100,7 +100,7 @@ export default function ProfilePage() {
           <button
             type="button"
             onClick={toggleLayout}
-            className="flex items-center justify-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-ts-text-1 transition hover:border-ts-accent/50 hover:bg-ts-accent/10 hover:text-ts-accent ml-auto"
+            className="flex items-center justify-center gap-2 rounded-full border border-ts-border bg-ts-surface px-4 py-2 text-sm font-medium text-ts-text-1 transition hover:border-ts-accent/50 hover:bg-ts-accent/10 hover:text-ts-accent ml-auto"
             title={layout === "comfortable" ? "Switch to compact view" : "Switch to comfortable view"}
           >
             {layout === "comfortable" ? (
@@ -119,13 +119,13 @@ export default function ProfilePage() {
       </div>
 
       {/* Divider */}
-      <div className="border-b border-white/10 mb-6 md:mb-8" />
+      <div className="border-b border-ts-border mb-6 md:mb-8" />
 
       {/* ── Trip list, one day at a time ── */}
       {initialLoading ? (
-        <div className="text-center text-slate-500 py-10">Loading...</div>
+        <div className="text-center text-ts-text-3 py-10">Loading...</div>
       ) : days.length === 0 ? (
-        <div className="text-center py-10 text-slate-400">No trips yet.</div>
+        <div className="text-center py-10 text-ts-text-2">No trips yet.</div>
       ) : (
         <>
           {days.map(({ day, label, trips: tripList }) => (
@@ -137,7 +137,7 @@ export default function ProfilePage() {
                   {/* Date — clickable via Link */}
                   <Link href={`/trip/${day}`} className="flex items-center gap-3 min-w-0 flex-1">
                     <h3 className="text-base md:text-lg font-bold text-ts-text-1 truncate">{label}</h3>
-                    <span className="shrink-0 text-xs text-slate-500 tabular-nums">
+                    <span className="shrink-0 text-xs text-ts-text-3 tabular-nums">
                       {tripList.length} {tripList.length === 1 ? "trip" : "trips"}
                     </span>
                   </Link>
@@ -146,21 +146,21 @@ export default function ProfilePage() {
                   <div className="inline-flex gap-2 ml-auto">
                     <Link
                       href={`/trip/${day}`}
-                      className="shrink-0 inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-medium tracking-[0.12em] text-ts-text-2 transition hover:border-ts-accent/50 hover:bg-ts-accent/10 hover:text-ts-accent"
+                      className="shrink-0 inline-flex items-center gap-1 rounded-full border border-ts-border bg-ts-surface px-2.5 py-1 text-[11px] font-medium tracking-[0.12em] text-ts-text-2 transition hover:border-ts-accent/50 hover:bg-ts-accent/10 hover:text-ts-accent"
                     >
                       <Info className="h-3 w-3" />
                       Details
                     </Link>
                     <Link
                       href={`/trip/${day}/map`}
-                      className="shrink-0 inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-medium tracking-[0.12em] text-ts-text-2 transition hover:border-ts-accent/50 hover:bg-ts-accent/10 hover:text-ts-accent"
+                      className="shrink-0 inline-flex items-center gap-1 rounded-full border border-ts-border bg-ts-surface px-2.5 py-1 text-[11px] font-medium tracking-[0.12em] text-ts-text-2 transition hover:border-ts-accent/50 hover:bg-ts-accent/10 hover:text-ts-accent"
                     >
                       <MapPinned className="h-3 w-3" />
                       Map
                     </Link>
                   </div>
                 </div>
-                <div className="mt-2 border-b border-white/5" />
+                <div className="mt-2 border-b border-ts-border-soft" />
               </div>
 
               {/* Trip cards */}
@@ -179,14 +179,14 @@ export default function ProfilePage() {
           {/* Auto-load sentinel (loads one more day when scrolled into view) */}
           {hasMore && <div ref={sentinelRef} aria-hidden="true" className="h-1" />}
 
-          <div className="py-4 text-center text-sm text-slate-500">
+          <div className="py-4 text-center text-sm text-ts-text-3">
             {loadingMore && "Loading more trips..."}
             {!hasMore && "All trips loaded"}
             {hasMore && !loadingMore && (
               <button
                 type="button"
                 onClick={() => void loadMore()}
-                className="rounded-full border border-white/10 bg-white/5 px-6 py-2 text-sm font-medium text-ts-text-1 transition hover:border-ts-accent/50 hover:bg-ts-accent/10 hover:text-ts-accent"
+                className="rounded-full border border-ts-border bg-ts-surface px-6 py-2 text-sm font-medium text-ts-text-1 transition hover:border-ts-accent/50 hover:bg-ts-accent/10 hover:text-ts-accent"
               >
                 Load more
               </button>

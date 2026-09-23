@@ -53,7 +53,7 @@ export function RoutesTab({ operatorCode }: Pick<TabProps, "operatorCode">) {
           ].map(({ label, value }) => (
             <div
               key={label}
-              className="bg-[var(--color-ts-surface)] border border-white/[0.06] rounded-xl sm:rounded-2xl px-3 sm:px-5 py-3 sm:py-4"
+              className="bg-[var(--color-ts-surface)] border border-[var(--color-ts-border-soft)] rounded-xl sm:rounded-2xl px-3 sm:px-5 py-3 sm:py-4"
             >
               <p className="text-[9px] sm:text-[10px] font-bold text-[var(--color-ts-text-3)] tracking-[0.15em] sm:tracking-[0.18em] mb-1 truncate">
                 {label}
@@ -68,7 +68,7 @@ export function RoutesTab({ operatorCode }: Pick<TabProps, "operatorCode">) {
 
       {/* ── Completion bar ── */}
       {!isLoading && routes.length > 0 && (
-        <div className="bg-[var(--color-ts-surface)] border border-white/[0.06] rounded-xl sm:rounded-2xl px-4 sm:px-5 py-3 sm:py-4">
+        <div className="bg-[var(--color-ts-surface)] border border-[var(--color-ts-border-soft)] rounded-xl sm:rounded-2xl px-4 sm:px-5 py-3 sm:py-4">
           <div className="flex items-center justify-between mb-2">
             <p className="text-[9px] sm:text-[10px] font-bold text-[var(--color-ts-text-3)] tracking-[0.15em] sm:tracking-[0.18em]">
               {showWithdrawn ? "All Routes" : "Active Routes"}
@@ -78,7 +78,7 @@ export function RoutesTab({ operatorCode }: Pick<TabProps, "operatorCode">) {
               <span className="text-[var(--color-ts-text-3)] ml-1.5">{stats.pct}%</span>
             </p>
           </div>
-          <div className="h-[5px] w-full bg-white/[0.06] rounded-full overflow-hidden">
+          <div className="h-[5px] w-full bg-[var(--color-ts-border-soft)] rounded-full overflow-hidden">
             <div
               className="h-full bg-[var(--color-ts-accent)] rounded-full transition-all duration-700 ease-in-out"
               style={{ width: `${stats.pct}%` }}

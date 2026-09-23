@@ -69,7 +69,7 @@ export default function FriendsPage() {
 
       <ProfileVisibilitySelector />
 
-      <div className="mt-6 border-b border-white/10">
+      <div className="mt-6 border-b border-ts-border">
         <div className="flex gap-1">
           {tabs.map(({ key, label, icon: Icon }) => {
             const active = activeTab === key;
@@ -222,7 +222,7 @@ function IncomingTab({
             </button>
             <button
               onClick={() => onDecline(r._id)}
-              className="inline-flex items-center gap-1 rounded-full border border-ts-border bg-ts-surface px-3 py-1.5 text-xs font-semibold text-ts-text-2 transition-all hover:border-rose-400/50 hover:bg-rose-500/10 hover:text-rose-300"
+              className="inline-flex items-center gap-1 rounded-full border border-ts-border bg-ts-surface px-3 py-1.5 text-xs font-semibold text-ts-text-2 transition-all hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-600"
             >
               <X className="h-3.5 w-3.5" />
               Decline
@@ -269,7 +269,7 @@ function OutgoingTab({
               </Link>
               <div className="flex items-center gap-1.5">
                 {r.status === "pending" ? (
-                  <span className="flex items-center gap-1 text-xs text-amber-400">
+                  <span className="flex items-center gap-1 text-xs text-amber-600">
                     <Clock className="h-3 w-3" /> Pending
                   </span>
                 ) : r.status === "accepted" ? (
@@ -277,7 +277,7 @@ function OutgoingTab({
                     <UserCheck className="h-3 w-3" /> Accepted
                   </span>
                 ) : (
-                  <span className="flex items-center gap-1 text-xs text-rose-400">
+                  <span className="flex items-center gap-1 text-xs text-rose-600">
                     <UserX className="h-3 w-3" /> Declined
                   </span>
                 )}
@@ -290,7 +290,7 @@ function OutgoingTab({
           {r.status === "pending" && (
             <button
               onClick={() => onCancel(r.toUser)}
-              className="inline-flex items-center gap-1 rounded-full border border-ts-border bg-ts-surface px-3 py-1.5 text-xs font-semibold text-ts-text-2 transition-all hover:border-rose-400/50 hover:bg-rose-500/10 hover:text-rose-300"
+              className="inline-flex items-center gap-1 rounded-full border border-ts-border bg-ts-surface px-3 py-1.5 text-xs font-semibold text-ts-text-2 transition-all hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-600"
             >
               <X className="h-3.5 w-3.5" />
               Cancel

@@ -211,22 +211,22 @@ export default function TripDateMapPage({ params }: { params: Promise<{ date: st
   const auth = useRequireAuth(true);
   if (auth) return auth;
 
-  if (loadError) return <div className="p-8 text-ts-text-1 bg-[#0d1410] h-screen">Failed to load trips: {loadError}</div>;
+  if (loadError) return <div className="p-8 text-ts-text-1 bg-ts-bg h-screen">Failed to load trips: {loadError}</div>;
   if (trips === undefined) {
     return (
-      <div className="p-8 text-ts-text-1 bg-[#0d1410] h-screen">
+      <div className="p-8 text-ts-text-1 bg-ts-bg h-screen">
         {isAll && loadedCount > 0 ? `Loading… ${loadedCount} trips` : 'Loading...'}
       </div>
     );
   }
 
   return (
-    <div className="ts-app" style={{ display: 'flex', height: '100vh', background: '#0d1410' }}>
+    <div className="ts-app" style={{ display: 'flex', height: '100vh', background: 'var(--ts-bg)' }}>
       <main className="ts-main" style={{ flex: 1, position: 'relative' }}>
         <div className="ts-detail-layout" style={{ height: '100%' }}>
           {/* Header overlay to match Django header */}
-          <div className="absolute top-4 left-4 z-10 bg-[#141e17]/90 backdrop-blur-md border border-[#2a3d2f] p-4 rounded-lg">
-            <h1 className="text-[#e8f0e4] font-bold text-lg">Trips on {date}</h1>
+          <div className="absolute top-4 left-4 z-10 bg-ts-surface/90 backdrop-blur-md border border-ts-border p-4 rounded-lg">
+            <h1 className="text-ts-text-1 font-bold text-lg">Trips on {date}</h1>
           </div>
           <div ref={mapContainer} style={{ width: '100%', height: '100%' }} />
         </div>
@@ -234,8 +234,8 @@ export default function TripDateMapPage({ params }: { params: Promise<{ date: st
       
       <style jsx global>{`
         .maplibregl-ctrl-attrib { display: none; }
-        .maplibregl-ctrl-group { border: 1px solid #2a3d2f !important; background: #141e17 !important; }
-        .maplibregl-ctrl button span { filter: invert(1); }
+        .maplibregl-ctrl-group { border: 1px solid var(--ts-border) !important; background: var(--ts-surface) !important; }
+        [data-ts-theme='dark'] .maplibregl-ctrl button span { filter: invert(1); }
       `}</style>
     </div>
   );

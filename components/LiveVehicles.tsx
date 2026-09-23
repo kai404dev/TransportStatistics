@@ -6,11 +6,6 @@ import { useMap } from "./Map";
 const POLL_INTERVAL_MS = 30000;
 const DENSITY_THRESHOLD = 1000;
 
-const C = {
-  bg: "#0d1410", surface: "#141e17", border: "#2a3d2f",
-  text1: "#e8f0e4", text2: "#9ab89a",
-};
-
 export const LiveVehicles = ({ bounds }: { bounds: { minLat: number; maxLat: number; minLon: number; maxLon: number } }) => {
   const map = useMap();
 
@@ -342,8 +337,7 @@ export const LiveVehicles = ({ bounds }: { bounds: { minLat: number; maxLat: num
   }, [showBuses, showTrains]);
 
   return (
-    <div className="absolute top-4 left-12 p-2 rounded shadow-md flex flex-col gap-1 text-sm z-10"
-         style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.text2 }}>
+    <div className="absolute top-4 left-12 p-2 rounded shadow-md flex flex-col gap-1 text-sm z-10 bg-ts-surface border border-ts-border text-ts-text-2">
       <label className="flex items-center gap-2 cursor-pointer">
         <input type="checkbox" checked={showBuses} onChange={(e) => setShowBuses(e.target.checked)} />
         Live Buses

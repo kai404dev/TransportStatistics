@@ -141,13 +141,13 @@ export default function TripDatePage({ params }: TripDatePageProps) {
         <div className="border-b border-ts-border px-4 py-4 md:px-6 md:py-5">
           {/* Pill row */}
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm font-semibold text-ts-text-1">
+            <span className="rounded-full border border-ts-border bg-ts-surface-2 px-3 py-1 text-sm font-semibold text-ts-text-1">
               {accentLabel}
             </span>
-            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm text-ts-text-2">
+            <span className="rounded-full border border-ts-border bg-ts-surface-2 px-3 py-1 text-sm text-ts-text-2">
               {summary.operators} operator{summary.operators === 1 ? '' : 's'}
             </span>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm text-ts-text-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-ts-border bg-ts-surface-2 px-3 py-1 text-sm text-ts-text-2">
               <MapPinned className="h-4 w-4 shrink-0" />
               Day overview
             </span>

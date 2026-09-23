@@ -287,13 +287,13 @@ function isRouteCircularForUpdate(fullRoute: Array<{ stop?: { location?: [number
 function getAccentClasses(type: string) {
   switch (type) {
     case 'Rail':
-      return 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300';
+      return 'border-emerald-500/25 bg-emerald-500/10 text-emerald-600';
     case 'Bus':
-      return 'border-orange-500/25 bg-orange-500/10 text-orange-300';
+      return 'border-orange-500/25 bg-orange-500/10 text-orange-600';
     case 'Tram':
-      return 'border-purple-500/25 bg-purple-500/10 text-purple-300';
+      return 'border-purple-500/25 bg-purple-500/10 text-purple-600';
     default:
-      return 'border-sky-500/25 bg-sky-500/10 text-sky-300';
+      return 'border-sky-500/25 bg-sky-500/10 text-sky-600';
   }
 }
 
@@ -1049,7 +1049,7 @@ export function TripDetailsClient({ data, isOwner = true }: Props) {
       </div>
 
       <section className={``}>
-        <div className="border-b border-white/10 px-5 py-4 md:px-6 md:py-5">
+        <div className="border-b border-ts-border px-5 py-4 md:px-6 md:py-5">
           <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div className="min-w-0">
               <h1 className="mt-2 text-2xl font-bold text-ts-text-1 md:text-2xl">{trip.service_number} | {routeTitle}</h1>
@@ -1059,7 +1059,7 @@ export function TripDetailsClient({ data, isOwner = true }: Props) {
               <br/>
               <div className="flex flex-wrap items-center gap-2">
                 {isFirstTime ? (
-                  <div className="shrink-0 inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/5 px-3 py-1 text-xs font-semibold  tracking-[0.14em] text-amber-500">
+                  <div className="shrink-0 inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/5 px-3 py-1 text-xs font-semibold  tracking-[0.14em] text-amber-600">
                     <svg className="w-2.5 h-2.5 shrink-0" viewBox="0 0 12 12" fill="currentColor">
                       <path d="M6 1l1.2 3.6H11l-3 2.2 1.1 3.6L6 8.2l-3.1 2.2L4 7 1 4.8h3.8z"/>
                     </svg>
@@ -1070,17 +1070,17 @@ export function TripDetailsClient({ data, isOwner = true }: Props) {
                   <span
                     className={`rounded-full border px-3 py-1 text-xs font-semibold  tracking-[0.14em] ${
                       isDelayed
-                        ? 'border-rose-400/25 bg-rose-400/10 text-rose-400'
+                        ? 'border-rose-500/25 bg-rose-500/10 text-rose-600'
                         : isEarly
-                          ? 'border-emerald-400/25 bg-emerald-400/10 text-emerald-500'
-                          : 'border-sky-400/25 bg-sky-400/10 text-sky-400'
+                          ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-600'
+                          : 'border-sky-500/25 bg-sky-500/10 text-sky-600'
                     }`}
                   >
                     {delayLabel} {formatDuration(primaryDelayMs)}
                   </span>
                 ) : null}
                 {!isOwner && isParticipating ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-600">
                     <MapPinned className="h-3 w-3" />
                     You were on this trip
                   </span>
@@ -1090,7 +1090,7 @@ export function TripDetailsClient({ data, isOwner = true }: Props) {
           </div>
         </div>
 
-        <div className="grid gap-3 border-t border-white/10 px-5 py-4 md:grid-cols-2 lg:grid-cols-4 md:px-6">
+        <div className="grid gap-3 border-t border-ts-border px-5 py-4 md:grid-cols-2 lg:grid-cols-4 md:px-6">
           <StatCard
             label="Duration"
             value={formatDuration(durationMs)}
@@ -1144,15 +1144,15 @@ export function TripDetailsClient({ data, isOwner = true }: Props) {
                   return (
                     <div key={`${label}-${index}`} className="flex gap-3 rounded-2xl px-4 mb-[1px]">
                       <div className="flex flex-col items-center pt-0.5">
-                        <div className={`h-3 w-3 rounded-full ${isEdge ? 'bg-ts-accent' : 'bg-white/40'}`} />
-                        {index < routeStops.length - 1 ? <div className="mt-1 h-full min-h-8 w-px bg-white/10" /> : null}
+                        <div className={`h-3 w-3 rounded-full ${isEdge ? 'bg-ts-accent' : 'bg-ts-text-3'}`} />
+                        {index < routeStops.length - 1 ? <div className="mt-1 h-full min-h-8 w-px bg-ts-border" /> : null}
                       </div>
 
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-semibold text-ts-text-1">{label}</span>
                           {isEdge ? (
-                            <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold  tracking-[0.14em] text-ts-text-3">
+                            <span className="rounded-full border border-ts-border bg-ts-surface-2 px-2 py-0.5 text-[10px] font-semibold  tracking-[0.14em] text-ts-text-3">
                               {index === 0 ? 'Origin' : 'Destination'}
                             </span>
                           ) : null}
@@ -1212,7 +1212,7 @@ export function TripDetailsClient({ data, isOwner = true }: Props) {
                           <div className="flex flex-wrap items-center gap-2">
                             <div className="font-mono text-sm font-semibold text-ts-text-1">{unitLabel}</div>
                             {unit.unit_type ? (
-                              <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px]  tracking-[0.14em] text-ts-text-3">
+                              <span className="rounded-full border border-ts-border bg-ts-surface-2 px-2.5 py-1 text-[10px]  tracking-[0.14em] text-ts-text-3">
                                 {unit.unit_type}
                               </span>
                             ) : null}
@@ -1227,8 +1227,8 @@ export function TripDetailsClient({ data, isOwner = true }: Props) {
                                   key={evIdx}
                                   className={`inline-flex items-center gap-1 rounded-full px-2 mt-[-15px] py-1 text-[11px] font-semibold ${
                                     event.type === 'couple'
-                                      ? 'text-emerald-500'
-                                      : 'text-red-400'
+                                      ? 'text-emerald-600'
+                                      : 'text-red-600'
                                   }`}
                                 >
                                   {event.type === 'couple' ? (
@@ -1271,7 +1271,7 @@ export function TripDetailsClient({ data, isOwner = true }: Props) {
                             console.error(e);
                           }
                         }}
-                        className="ml-0.5 rounded-full p-0.5 text-ts-text-3 hover:bg-rose-500/20 hover:text-rose-300 transition-colors"
+                        className="ml-0.5 rounded-full p-0.5 text-ts-text-3 hover:bg-rose-500/20 hover:text-rose-600 transition-colors"
                       >
                         <X className="h-3 w-3" />
                       </button>
@@ -1385,7 +1385,7 @@ export function TripDetailsClient({ data, isOwner = true }: Props) {
                     type="button"
                     onClick={handleDelete}
                     disabled={isDeleting}
-                    className="inline-flex items-center gap-2 rounded-full border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-sm text-rose-300 transition hover:border-rose-400/50 hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex items-center gap-2 rounded-full border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-sm text-rose-600 transition hover:border-rose-500/50 hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-60"
                     title="Delete your own trip"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -1397,11 +1397,11 @@ export function TripDetailsClient({ data, isOwner = true }: Props) {
               )}
             </div>
             {updateError ? (
-              <div className="mt-3 rounded-xl border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+              <div className="mt-3 rounded-xl border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-600">
                 {updateError}
               </div>
             ) : updateState === 'success' ? (
-              <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">
+              <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600">
                 Trip refreshed from bustimes — times, route and polyline updated.
               </div>
             ) : null}

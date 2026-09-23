@@ -65,7 +65,7 @@ export default function UserProfilePage({
   if (!currentUser) {
     return (
       <div className="max-w-4xl mx-auto p-4 md:p-8">
-        <div className="text-center py-10 text-slate-400">User not found.</div>
+        <div className="text-center py-10 text-ts-text-2">User not found.</div>
       </div>
     );
   }
@@ -119,12 +119,12 @@ export default function UserProfilePage({
 
       </div>
 
-      <div className="border-b border-white/10 mb-6 md:mb-8" />
+      <div className="border-b border-ts-border mb-6 md:mb-8" />
 
       {initialLoading ? (
-        <div className="text-center text-slate-500 py-10">Loading...</div>
+        <div className="text-center text-ts-text-3 py-10">Loading...</div>
       ) : days.length === 0 ? (
-        <div className="text-center py-10 text-slate-400">No trips yet.</div>
+        <div className="text-center py-10 text-ts-text-2">No trips yet.</div>
       ) : (
         <>
           {days.map(({ day, label, trips: tripList }) => (
@@ -134,12 +134,12 @@ export default function UserProfilePage({
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-3 min-w-0 flex-1">
                     <h3 className="text-base md:text-lg font-bold text-ts-text-1 truncate">{label}</h3>
-                    <span className="shrink-0 text-xs text-slate-500 tabular-nums">
+                    <span className="shrink-0 text-xs text-ts-text-3 tabular-nums">
                       {tripList.length} {tripList.length === 1 ? "trip" : "trips"}
                     </span>
                   </div>
                 </div>
-                <div className="mt-2 border-b border-white/5" />
+                <div className="mt-2 border-b border-ts-border-soft" />
               </div>
 
               <div className="flex flex-col gap-2 mt-2">
@@ -153,14 +153,14 @@ export default function UserProfilePage({
           {/* Auto-load sentinel (loads one more day when scrolled into view) */}
           {hasMore && <div ref={sentinelRef} aria-hidden="true" className="h-1" />}
 
-          <div className="py-4 text-center text-sm text-slate-500">
+          <div className="py-4 text-center text-sm text-ts-text-3">
             {loadingMore && "Loading more trips..."}
             {!hasMore && "All trips loaded"}
             {hasMore && !loadingMore && (
               <button
                 type="button"
                 onClick={() => void loadMore()}
-                className="rounded-full border border-white/10 bg-white/5 px-6 py-2 text-sm font-medium text-ts-text-1 transition hover:border-ts-accent/50 hover:bg-ts-accent/10 hover:text-ts-accent"
+                className="rounded-full border border-ts-border bg-ts-surface px-6 py-2 text-sm font-medium text-ts-text-1 transition hover:border-ts-accent/50 hover:bg-ts-accent/10 hover:text-ts-accent"
               >
                 Load more
               </button>

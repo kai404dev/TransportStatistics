@@ -1616,7 +1616,7 @@ export default function LogPage() {
           <button
             type="button"
             onClick={() => { removeCustomStop(stop.id); onDone?.(); }}
-            className="rounded-2xl border border-red-500/30 py-2.5 text-sm font-semibold text-red-400 transition active:scale-95 hover:bg-red-500/10"
+            className="rounded-2xl border border-red-500/30 py-2.5 text-sm font-semibold text-red-600 transition active:scale-95 hover:bg-red-500/10"
           >
             Remove custom stop
           </button>
@@ -1670,7 +1670,7 @@ export default function LogPage() {
             )}
             {addStopAfterId !== null && (
               <div className="mt-3 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-3">
-                <p className="mb-2 text-xs font-semibold text-amber-400">Add custom stop</p>
+                <p className="mb-2 text-xs font-semibold text-amber-600">Add custom stop</p>
                 <div className="grid grid-cols-2 gap-2">
                   <input
                     autoFocus
@@ -1678,21 +1678,21 @@ export default function LogPage() {
                     onChange={(e) => setNewStopName(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter' && newStopName.trim()) commitCustomStop(); if (e.key === 'Escape') cancelAddStop(); }}
                     placeholder="Stop name"
-                    className="col-span-2 h-10 rounded-xl border border-ts-border bg-ts-surface-2 px-3 text-sm text-ts-text-1 outline-none transition focus:border-amber-400 placeholder:text-ts-text-3"
+                    className="col-span-2 h-10 rounded-xl border border-ts-border bg-ts-surface-2 px-3 text-sm text-ts-text-1 outline-none transition focus:border-amber-500 placeholder:text-ts-text-3"
                   />
                   <input
                     type="time"
                     value={newStopArrivalTime}
                     onChange={(e) => setNewStopArrivalTime(e.target.value)}
                     placeholder="Arrival"
-                    className="h-10 rounded-xl border border-ts-border bg-ts-surface-2 px-3 text-sm text-ts-text-1 outline-none transition focus:border-amber-400 placeholder:text-ts-text-3"
+                    className="h-10 rounded-xl border border-ts-border bg-ts-surface-2 px-3 text-sm text-ts-text-1 outline-none transition focus:border-amber-500 placeholder:text-ts-text-3"
                   />
                   <input
                     type="time"
                     value={newStopTime}
                     onChange={(e) => setNewStopTime(e.target.value)}
                     placeholder="Departure"
-                    className="h-10 rounded-xl border border-ts-border bg-ts-surface-2 px-3 text-sm text-ts-text-1 outline-none transition focus:border-amber-400 placeholder:text-ts-text-3"
+                    className="h-10 rounded-xl border border-ts-border bg-ts-surface-2 px-3 text-sm text-ts-text-1 outline-none transition focus:border-amber-500 placeholder:text-ts-text-3"
                   />
                 </div>
                 {customStopLocation && (
@@ -1708,7 +1708,7 @@ export default function LogPage() {
                     type="button"
                     onClick={commitCustomStop}
                     disabled={!newStopName.trim()}
-                    className="flex-1 rounded-xl bg-amber-500/15 border border-amber-500/30 py-2 text-xs font-bold text-amber-400 transition hover:bg-amber-500/25 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="flex-1 rounded-xl bg-amber-500/15 border border-amber-500/30 py-2 text-xs font-bold text-amber-600 transition hover:bg-amber-500/25 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     Add to route
                   </button>
@@ -1749,9 +1749,9 @@ export default function LogPage() {
                 {journeyFetchLoading ? 'Fetching…' : 'Add tracking'}
               </button>
             </div>
-            {journeyFetchError && <p className="text-xs text-red-400">{journeyFetchError}</p>}
+            {journeyFetchError && <p className="text-xs text-red-600">{journeyFetchError}</p>}
             {vehicleJourneyId && actualGeometry && !journeyFetchError && (
-              <p className="text-xs text-emerald-400">Tracking added check the map and save.</p>
+              <p className="text-xs text-emerald-600">Tracking added check the map and save.</p>
             )}
           </div>
         )}
@@ -1844,7 +1844,7 @@ export default function LogPage() {
                 <button
                   type="button"
                   onClick={() => { startAddStop(selectedStop.id); }}
-                  className="mt-2 w-full rounded-2xl border border-dashed border-amber-500/30 py-3 text-sm font-semibold text-amber-400 transition active:scale-95 hover:bg-amber-500/10"
+                  className="mt-2 w-full rounded-2xl border border-dashed border-amber-500/30 py-3 text-sm font-semibold text-amber-600 transition active:scale-95 hover:bg-amber-500/10"
                 >
                   + Add stop after here
                 </button>
@@ -1865,7 +1865,7 @@ export default function LogPage() {
                     {/* Timeline */}
                     <div className="flex flex-col items-center w-8 shrink-0 pt-5 pb-0">
                       <div className={`h-3 w-3 rounded-full border-2 shrink-0 z-0 ${
-                        stop.id < 0 ? 'border-amber-400 bg-amber-400/40' :
+                        stop.id < 0 ? 'border-amber-500 bg-amber-500/40' :
                         isStart ? 'border-ts-accent bg-ts-accent' :
                         isEnd ? 'border-sky-400 bg-sky-400' :
                         inRidden ? 'border-ts-accent/60 bg-ts-accent/20' :
@@ -1893,9 +1893,9 @@ export default function LogPage() {
                       }`}
                     >
                       <div className="flex flex-wrap items-center gap-1.5">
-                        {stop.id < 0 && <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold tracking-widest text-amber-400">Custom</span>}
+                        {stop.id < 0 && <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold tracking-widest text-amber-600">Custom</span>}
                         {isStart && <span className="rounded-full bg-ts-accent/20 px-2 py-0.5 text-[10px] font-bold tracking-widest text-ts-accent">Start</span>}
-                        {isEnd && <span className="rounded-full bg-sky-500/20 px-2 py-0.5 text-[10px] font-bold tracking-widest text-sky-400">End</span>}
+                        {isEnd && <span className="rounded-full bg-sky-500/20 px-2 py-0.5 text-[10px] font-bold tracking-widest text-sky-600">End</span>}
                         {stop.stop.stop_code && <span className="text-[10px] text-ts-text-3">{stop.stop.stop_code}</span>}
                       </div>
                       {editingStopId === stop.id ? (
@@ -1923,7 +1923,7 @@ export default function LogPage() {
                             <button
                               type="button"
                               onClick={(e) => { e.stopPropagation(); setEditingStopId(stop.id); }}
-                              className="rounded p-0.5 text-ts-text-3 hover:text-amber-400 transition"
+                              className="rounded p-0.5 text-ts-text-3 hover:text-amber-600 transition"
                               title="Rename stop"
                             >
                               <Pencil className="h-3 w-3" />
@@ -1951,7 +1951,7 @@ export default function LogPage() {
                           <button
                             type="button"
                             onClick={() => removeCustomStop(stop.id)}
-                            className="rounded-full border border-red-500/30 bg-red-500/10 px-2.5 py-1 text-[10px] font-semibold text-red-300 transition hover:bg-red-500/15 active:scale-95"
+                            className="rounded-full border border-red-500/30 bg-red-500/10 px-2.5 py-1 text-[10px] font-semibold text-red-600 transition hover:bg-red-500/15 active:scale-95"
                           >
                             Remove stop
                           </button>
@@ -1965,7 +1965,7 @@ export default function LogPage() {
                       <button
                         type="button"
                         onClick={() => startAddStop(stop.id)}
-                        className="flex items-center gap-1.5 rounded-full border border-dashed border-ts-border px-2.5 py-1 text-[11px] font-semibold text-ts-text-3 transition hover:border-amber-400 hover:text-amber-400 active:scale-95"
+                        className="flex items-center gap-1.5 rounded-full border border-dashed border-ts-border px-2.5 py-1 text-[11px] font-semibold text-ts-text-3 transition hover:border-amber-500 hover:text-amber-600 active:scale-95"
                       >
                         <Plus className="h-3 w-3" />
                         Add stop after
@@ -2049,8 +2049,8 @@ export default function LogPage() {
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span className="text-sm font-bold text-ts-text-1">{[r.unit_number, r.unit_reg].filter(Boolean).join(' · ')}</span>
-                        {r.withdrawn && <span className="rounded-full bg-red-500/15 px-1.5 py-0.5 text-[9px] font-bold tracking-wider text-red-300">Withdrawn</span>}
-                        <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold tracking-wider ${r.source === 'train' ? 'bg-sky-500/15 text-sky-300' : 'bg-ts-accent/15 text-ts-accent'}`}>{r.source}</span>
+                        {r.withdrawn && <span className="rounded-full bg-red-500/15 px-1.5 py-0.5 text-[9px] font-bold tracking-wider text-red-600">Withdrawn</span>}
+                        <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold tracking-wider ${r.source === 'train' ? 'bg-sky-500/15 text-sky-600' : 'bg-ts-accent/15 text-ts-accent'}`}>{r.source}</span>
                       </div>
                       <div className="mt-0.5 truncate text-xs text-ts-text-3">{r.type.type_name}{r.type.type_name && r.operator.operator_name ? ' · ' : ''}{r.operator.operator_name}</div>
                     </div>
@@ -2131,7 +2131,7 @@ export default function LogPage() {
                 <button
                   type="button"
                   onClick={removeSelectedUnit}
-                  className="rounded-full border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-sm font-semibold text-red-300 transition hover:bg-red-500/15 active:scale-95"
+                  className="rounded-full border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-sm font-semibold text-red-600 transition hover:bg-red-500/15 active:scale-95"
                 >
                   Remove
                 </button>
@@ -2250,18 +2250,18 @@ export default function LogPage() {
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-2">
                   {isCouple ? (
-                    <Link2 className="h-4 w-4 text-emerald-400" />
+                    <Link2 className="h-4 w-4 text-emerald-600" />
                   ) : (
-                    <Link2Off className="h-4 w-4 text-red-400" />
+                    <Link2Off className="h-4 w-4 text-red-600" />
                   )}
-                  <span className={`text-sm font-bold ${isCouple ? 'text-emerald-400' : 'text-red-400'}`}>
+                  <span className={`text-sm font-bold ${isCouple ? 'text-emerald-600' : 'text-red-600'}`}>
                     {isCouple ? 'Coupled' : 'Uncoupled'}
                   </span>
                 </div>
                 <button
                   type="button"
                   onClick={() => removeCouplingEvent(index)}
-                  className="rounded-full border border-red-500/30 bg-red-500/10 p-1.5 text-red-300 transition hover:bg-red-500/15 active:scale-95"
+                  className="rounded-full border border-red-500/30 bg-red-500/10 p-1.5 text-red-600 transition hover:bg-red-500/15 active:scale-95"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -2326,8 +2326,8 @@ export default function LogPage() {
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-1.5">
                               <span className="text-sm font-bold text-ts-text-1">{[r.unit_number, r.unit_reg].filter(Boolean).join(' · ')}</span>
-                              {r.withdrawn && <span className="rounded-full bg-red-500/15 px-1.5 py-0.5 text-[9px] font-bold tracking-wider text-red-300">Withdrawn</span>}
-                              <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold tracking-wider ${r.source === 'train' ? 'bg-sky-500/15 text-sky-300' : 'bg-ts-accent/15 text-ts-accent'}`}>{r.source}</span>
+                              {r.withdrawn && <span className="rounded-full bg-red-500/15 px-1.5 py-0.5 text-[9px] font-bold tracking-wider text-red-600">Withdrawn</span>}
+                              <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold tracking-wider ${r.source === 'train' ? 'bg-sky-500/15 text-sky-600' : 'bg-ts-accent/15 text-ts-accent'}`}>{r.source}</span>
                             </div>
                             <div className="mt-0.5 truncate text-xs text-ts-text-3">{r.type.type_name}{r.type.type_name && r.operator.operator_name ? ' · ' : ''}{r.operator.operator_name}</div>
                           </div>
@@ -2346,7 +2346,7 @@ export default function LogPage() {
                       onClick={() => updateCouplingEvent(index, { type: 'couple' })}
                       className={`rounded-full px-4 py-2 text-sm font-semibold transition active:scale-95 ${
                         isCouple
-                          ? 'bg-emerald-500/20 text-emerald-400 shadow-md shadow-emerald-500/10'
+                          ? 'bg-emerald-500/20 text-emerald-600 shadow-md shadow-emerald-500/10'
                           : 'text-ts-text-3 hover:text-ts-text-1'
                       }`}
                     >
@@ -2357,7 +2357,7 @@ export default function LogPage() {
                       onClick={() => updateCouplingEvent(index, { type: 'uncouple' })}
                       className={`rounded-full px-4 py-2 text-sm font-semibold transition active:scale-95 ${
                         !isCouple
-                          ? 'bg-red-500/20 text-red-400 shadow-md shadow-red-500/10'
+                          ? 'bg-red-500/20 text-red-600 shadow-md shadow-red-500/10'
                           : 'text-ts-text-3 hover:text-ts-text-1'
                       }`}
                     >
@@ -2473,9 +2473,9 @@ export default function LogPage() {
                 return (
                   <p key={i} className="flex items-center gap-1.5">
                     {event.type === 'couple' ? (
-                      <Link2 className="h-3 w-3 text-emerald-400 shrink-0" />
+                      <Link2 className="h-3 w-3 text-emerald-600 shrink-0" />
                     ) : (
-                      <Link2Off className="h-3 w-3 text-red-400 shrink-0" />
+                      <Link2Off className="h-3 w-3 text-red-600 shrink-0" />
                     )}
                     <span className="font-mono font-semibold">{unitLabel}</span>
                     <span>{event.type === 'couple' ? 'coupled to' : 'uncoupled from'} train at</span>
@@ -2577,9 +2577,9 @@ export default function LogPage() {
               <div className="flex items-center justify-between gap-3">
                 <div className="flex shrink-0 flex-wrap items-center gap-2">
                   {saveSuccess && <span className="text-xs font-semibold text-ts-accent sm:hidden">{saveSuccess}</span>}
-                  {saveError && <span className="max-w-[200px] truncate text-xs text-red-300">{saveError}</span>}
+                  {saveError && <span className="max-w-[200px] truncate text-xs text-red-600">{saveError}</span>}
                   {!isConvexAuthLoading && !isAuthenticated && (
-                    <span className="text-xs text-amber-400">Auth not connected</span>
+                    <span className="text-xs text-amber-600">Auth not connected</span>
                   )}
                   <button
                     type="submit"
@@ -2638,8 +2638,8 @@ export default function LogPage() {
               Loading service…
             </Card>
           ) : loadError ? (
-            <Card className="flex items-start gap-3 text-sm text-red-300">
-              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />
+            <Card className="flex items-start gap-3 text-sm text-red-600">
+              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
               <span>
                 {loadError === 'Missing service object'
                   ? 'Service not found. This can happen if the service was very recently created or not registered correctly by the operator.'

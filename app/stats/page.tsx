@@ -105,7 +105,7 @@ function ContributionHeatmap({
 
   const getColor = (count: number) => {
     if (count === -1) return "opacity-0 pointer-events-none"; // Fully hide out-of-year ghost days
-    if (count === 0) return "bg-white/[0.03] border border-white/[0.05]";
+    if (count === 0) return "bg-[var(--color-ts-surface-2)] border border-[var(--color-ts-border-soft)]";
     if (count === 1) return "bg-[#00441b]";
     if (count === 2) return "bg-[#006d2c]";
     if (count <= 4) return "bg-[#238b45]";

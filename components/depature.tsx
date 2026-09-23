@@ -2,21 +2,23 @@
 import { useEffect, useRef } from "react";
 
 // ─── Design tokens & CSS ──────────────────────────────────────────────────────
+// NOTE: values reference the theme CSS variables (see app/globals.css), so the
+// stop panel follows the active dark/light/bright theme automatically.
 const C = {
-  bg: "#0d1410",
-  surface: "#141e17",
-  surface2: "#1c2920",
-  surface3: "#243328",
-  border: "#2a3d2f",
-  borderSoft: "#1e2d22",
-  text1: "#e8f0e4",
-  text2: "#9ab89a",
-  text3: "#5a7a5e",
-  accent: "#34d064",
-  accentL: "rgba(52,208,100,0.10)",
-  accentB: "rgba(52,208,100,0.20)",
-  danger: "#f87171",
-  warn: "#f59e0b",
+  bg: "var(--ts-bg)",
+  surface: "var(--ts-surface)",
+  surface2: "var(--ts-surface-2)",
+  surface3: "var(--ts-surface-3)",
+  border: "var(--ts-border)",
+  borderSoft: "var(--ts-border-soft)",
+  text1: "var(--ts-text-1)",
+  text2: "var(--ts-text-2)",
+  text3: "var(--ts-text-3)",
+  accent: "var(--ts-accent)",
+  accentL: "var(--ts-accent-light)",
+  accentB: "var(--ts-accent-glow)",
+  danger: "var(--ts-danger)",
+  warn: "#d97706",
 };
 
 const PANEL_CSS = `
@@ -29,7 +31,7 @@ const PANEL_CSS = `
   .ts-stop-panel { width: 100%; box-sizing: border-box; background: ${C.bg}; color: ${C.text1}; padding: 16px; border-radius: inherit; font-family: system-ui, sans-serif; position: relative; }
   #ts-stop-panel-close { position: absolute; top: 14px; right: 14px; background: transparent; border: none; color: ${C.text3}; font-size: 24px; cursor: pointer; line-height: 1; }
   .line-pill { background: ${C.surface3}; border: 1px solid ${C.border}; color: ${C.text2}; font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 500; display: inline-block; margin-right: 4px; margin-bottom: 4px; }
-  .warning-box { background: ${C.danger}15; color: ${C.danger}; padding: 8px; border-radius: 6px; font-size: 11px; margin-bottom: 10px; border: 1px solid ${C.danger}30; }
+  .warning-box { background: color-mix(in srgb, ${C.danger} 10%, transparent); color: ${C.danger}; padding: 8px; border-radius: 6px; font-size: 11px; margin-bottom: 10px; border: 1px solid color-mix(in srgb, ${C.danger} 25%, transparent); }
 
   /* Departure rows */
   .dep-list { display: flex; flex-direction: column; gap: 0; margin-top: 8px; }
@@ -43,14 +45,14 @@ const PANEL_CSS = `
     gap: 0 8px;
     align-items: center;
     padding: 9px 8px;
-    border-top: 1px solid var(--border);
+    border-top: 1px solid var(--ts-border);
   }
-  .dep-row:last-child { border-bottom: 1px solid var(--border); }
+  .dep-row:last-child { border-bottom: 1px solid var(--ts-border); }
   .dep-service { min-width: 0; overflow: hidden; }
   .dep-service a { display: inline-block; background: ${C.accentL}; color: ${C.accent}; font-weight: 700; font-size: 11px; padding: 3px 6px; border-radius: 4px; border: 1px solid ${C.accentB}; text-decoration: none; white-space: nowrap; }
   .dep-dest {
     font-size: 12px;
-    color: var(--text1);
+    color: var(--ts-text-1);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -270,8 +272,8 @@ function buildDeparturesContent(data: any, state: any, popupId: string, stopId: 
         if (d.displayAs && d.displayAs !== "CALL") {
           const displayMap: Record<string, { label: string; color: string; bg: string; border: string }> = {
             PASS:      { label: "Passing",   color: C.text3,   bg: C.surface2,       border: C.borderSoft      },
-            CANCELLED: { label: "Cancelled", color: C.danger,  bg: `${C.danger}15`,  border: `${C.danger}30`   },
-            DIVERTED:  { label: "Diverted",  color: C.warn,    bg: `${C.warn}15`,    border: `${C.warn}30`     },
+            CANCELLED: { label: "Cancelled", color: C.danger,  bg: `color-mix(in srgb, ${C.danger} 10%, transparent)`,  border: `color-mix(in srgb, ${C.danger} 25%, transparent)`   },
+            DIVERTED:  { label: "Diverted",  color: C.warn,    bg: `color-mix(in srgb, ${C.warn} 12%, transparent)`,    border: `color-mix(in srgb, ${C.warn} 30%, transparent)`     },
           };
           const b = displayMap[d.displayAs] ?? { label: d.displayAs.charAt(0) + d.displayAs.slice(1).toLowerCase(), color: C.text3, bg: C.surface2, border: C.borderSoft };
           badges.push(`<span class="dep-status-badge" style="background:${b.bg};color:${b.color};border:1px solid ${b.border};">${b.label}</span>`);

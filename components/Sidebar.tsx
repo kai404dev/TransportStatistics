@@ -7,11 +7,11 @@ import { useUser, useClerk, SignOutButton, Show, SignInButton, SignUpButton, Use
 import { useMutation, useQuery } from "convex/react";
 import { createRoot, type Root } from "react-dom/client";
 import { api } from "@/convex/_generated/api";
-import { useTheme } from "@/components/ThemeProvider";
-import { 
+import { ThemeSwitcher } from "@/components/ThemeSwitcher";
+import {
   FileText, Home, User, Users, CheckCircle, Palette, RefreshCw, Edit, Scale,
-  Shield, Sun, LogOut, Menu, X, ChevronLeft, ChevronRight, ChartArea, Settings,
-  FolderUp, ArrowLeft, Moon, Route,
+  Shield, LogOut, Menu, X, ChevronLeft, ChevronRight, ChartArea, Settings,
+  FolderUp, ArrowLeft, Route,
 } from "lucide-react";
 
 const navLinks = [
@@ -167,7 +167,6 @@ export default function Sidebar() {
   const { user, isLoaded } = useUser();
   const isStaff = isLoaded && user?.publicMetadata?.is_staff === "true";
   const { openUserProfile } = useClerk();
-  const { theme, setTheme } = useTheme();
 
   // State
   const [isCollapsed, setIsCollapsed] = useState(false); // For Desktop
@@ -182,11 +181,6 @@ export default function Sidebar() {
   const isMobileOpen = mobileOpenPath === pathname;
   const tripLogsPageRootRef = useRef<Root | null>(null);
   const settingsPageRootRef = useRef<Root | null>(null);
-
-  const themeOptions = [
-    { key: "bright" as const, label: "Light", icon: Sun },
-    { key: "dark" as const, label: "Dark", icon: Moon },
-  ];
 
   async function handleExport(format: "csv" | "json") {
     try {
@@ -629,27 +623,7 @@ export default function Sidebar() {
             <div className={`px-2 pb-1 text-[9.5px] font-bold tracking-[0.09em] text-ts-text-3 ${isCollapsed ? "text-center" : ""}`}>
               {!isCollapsed ? "Theme" : ""}
             </div>
-            <div className={`grid gap-1 ${isCollapsed ? "grid-cols-1" : "grid-cols-2"}`}>
-              {themeOptions.map(({ key, label, icon: Icon }) => {
-                const active = theme === key;
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    title={label}
-                    onClick={() => setTheme(key)}
-                    className={`flex items-center justify-center gap-2 rounded-[6px] px-2 py-2 text-[12px] font-semibold transition-all ${
-                      active
-                        ? "bg-ts-accent-light text-ts-accent border border-ts-accent-border"
-                        : "text-ts-text-2 hover:bg-ts-surface border border-transparent"
-                    } ${isCollapsed ? "aspect-square p-0" : ""}`}
-                  >
-                    <Icon size={16} />
-                    {!isCollapsed && label}
-                  </button>
-                );
-              })}
-            </div>
+            <ThemeSwitcher compact={isCollapsed} />
           </div>
 
           <Show when="signed-in">
@@ -674,7 +648,7 @@ export default function Sidebar() {
               onChange={handleImportChange}
             />
             <SignOutButton>
-              <button className={`flex items-center gap-2.5 px-2.5 py-2 rounded-[6px] text-[13px] text-red-400 hover:bg-red-950/20 hover:text-red-300 w-full transition-all whitespace-nowrap ${isCollapsed ? "justify-center" : ""}`}>
+              <button className={`flex items-center gap-2.5 px-2.5 py-2 rounded-[6px] text-[13px] text-red-600 hover:bg-red-500/10 hover:text-red-600 w-full transition-all whitespace-nowrap ${isCollapsed ? "justify-center" : ""}`}>
                 <LogOut size={18} />
                 {!isCollapsed && "Log out"}
               </button>

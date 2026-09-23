@@ -165,7 +165,7 @@ export function FormBuilder({ fields, initialValues, onSubmit, onDelete, isSavin
             type="button"
             onClick={onDelete}
             disabled={isSaving}
-            className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-300"
+            className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-600"
           >
             Delete
           </button>

@@ -87,13 +87,13 @@ export function AdminEditRequestsTab() {
                 
                 <div className="flex items-center gap-2">
                   {req.status === 'pending' && (
-                    <span className="flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400"><Clock className="w-3 h-3"/> Pending</span>
+                    <span className="flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full bg-amber-500/15 text-amber-600"><Clock className="w-3 h-3"/> Pending</span>
                   )}
                   {req.status === 'approved' && (
-                    <span className="flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400"><Check className="w-3 h-3"/> Approved</span>
+                    <span className="flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full bg-emerald-500/15 text-emerald-600"><Check className="w-3 h-3"/> Approved</span>
                   )}
                   {req.status === 'declined' && (
-                    <span className="flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-400"><X className="w-3 h-3"/> Declined</span>
+                    <span className="flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full bg-rose-500/15 text-rose-600"><X className="w-3 h-3"/> Declined</span>
                   )}
                 </div>
               </div>
@@ -107,7 +107,7 @@ export function AdminEditRequestsTab() {
               <EditRequestDiffViewer from={req.from} to={req.to} />
 
               {req.adminReason && (
-                <div className="bg-rose-50 dark:bg-rose-950/10 text-rose-800 dark:text-rose-300 p-3 rounded-xl border border-rose-200/30 text-xs">
+                <div className="bg-rose-500/10 text-rose-600 p-3 rounded-xl border border-rose-500/30 text-xs">
                   <strong>Admin Rejection Note:</strong> {req.adminReason}
                 </div>
               )}
@@ -119,7 +119,7 @@ export function AdminEditRequestsTab() {
                     <div className="flex justify-end gap-2">
                       <button
                         onClick={() => setActiveDeclineId(req._id)}
-                        className="h-9 px-4 text-xs font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-xl border border-rose-200 transition flex items-center gap-1.5"
+                        className="h-9 px-4 text-xs font-bold text-rose-600 hover:bg-rose-500/10 rounded-xl border border-rose-500/30 transition flex items-center gap-1.5"
                       >
                         <X className="w-3 h-3" /> Decline Request
                       </button>

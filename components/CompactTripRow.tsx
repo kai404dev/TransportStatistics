@@ -64,10 +64,10 @@ export const CompactTripRow = ({ trip }: CompactTripRowProps) => {
 
   const getTypePillClasses = (type: string) => {
     switch (type) {
-      case 'Rail': return 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20';
-      case 'Bus':  return 'bg-orange-500/15 text-orange-400 border-orange-500/20';
-      case 'Tram': return 'bg-purple-500/15 text-purple-400 border-purple-500/20';
-      default:     return 'bg-blue-500/15 text-blue-400 border-blue-500/20';
+      case 'Rail': return 'bg-emerald-500/15 text-emerald-600 border-emerald-500/20';
+      case 'Bus':  return 'bg-orange-500/15 text-orange-600 border-orange-500/20';
+      case 'Tram': return 'bg-purple-500/15 text-purple-600 border-purple-500/20';
+      default:     return 'bg-blue-500/15 text-blue-600 border-blue-500/20';
     }
   };
 
@@ -126,8 +126,8 @@ export const CompactTripRow = ({ trip }: CompactTripRowProps) => {
                       key={idx}
                       className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-px text-[8px] font-semibold ${
                         event.type === 'couple'
-                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                          : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                          ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20'
+                          : 'bg-red-500/10 text-red-600 border border-red-500/20'
                       }`}
                     >
                       {event.type === 'couple' ? (

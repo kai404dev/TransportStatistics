@@ -24,8 +24,8 @@ export function FleetCard({ vehicle }: { vehicle: Vehicle }) {
       className={`
         group relative flex flex-col rounded-2xl border transition-all duration-150 overflow-hidden
         ${vehicle.withdrawn
-          ? "bg-ts-surface border-white/[0.04] opacity-60"
-          : "bg-ts-surface border-white/[0.06] hover:bg-ts-surface-2 hover:border-white/[0.10]"
+          ? "bg-ts-surface border-[var(--color-ts-border-soft)] opacity-60"
+          : "bg-ts-surface border-[var(--color-ts-border-soft)] hover:bg-ts-surface-2 hover:border-[var(--color-ts-border)]"
         }
       `}
     >
@@ -50,7 +50,7 @@ export function FleetCard({ vehicle }: { vehicle: Vehicle }) {
           </div>
 
           {vehicle.withdrawn && (
-            <div className="shrink-0 px-2 py-1 rounded-lg text-[9px] font-black tracking-widest bg-[#3a1e1e]/40 text-[#f87171] border border-[#5a2d2d]/50">
+            <div className="shrink-0 px-2 py-1 rounded-lg text-[9px] font-black tracking-widest bg-rose-500/10 text-rose-600 border border-rose-500/30">
               W/D
             </div>
           )}
@@ -67,7 +67,7 @@ export function FleetCard({ vehicle }: { vehicle: Vehicle }) {
 
         {/* ── Previous livery ── */}
         {previousLivery && (
-          <div className="flex items-center gap-3 pt-1 border-t border-white/[0.05]">
+          <div className="flex items-center gap-3 pt-1 border-t border-[var(--color-ts-border-soft)]">
             <div
               className="shrink-0 w-8 aspect-[24/16] shadow-sm border border-ts-border opacity-80"
               style={{ background: previousLivery.css ?? "#2a2a2a" }}
@@ -84,12 +84,12 @@ export function FleetCard({ vehicle }: { vehicle: Vehicle }) {
         )}
 
         {/* ── Status footer ── */}
-        <div className="flex items-center justify-between pt-2 mt-auto border-t border-white/[0.05]">
+        <div className="flex items-center justify-between pt-2 mt-auto border-t border-[var(--color-ts-border-soft)]">
           <div
             className={`flex items-center justify-center px-2.5 py-1.5 rounded-xl border transition-all ${
               vehicle.ridden
-                ? "bg-[#1e3a1e]/30 text-[#4ade80] border-[#2d5a2d]/50"
-                : "bg-white/[0.03] text-ts-text-1/20 border-white/[0.05]"
+                ? "bg-ts-accent/10 text-ts-accent border-ts-accent/30"
+                : "bg-[var(--color-ts-surface-2)] text-ts-text-1/20 border-[var(--color-ts-border-soft)]"
             }`}
           >
             {vehicle.ridden

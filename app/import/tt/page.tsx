@@ -282,8 +282,8 @@ function RoutePreview({ trip }: { trip: InternalTrip | null }) {
             return (
               <div key={i} className="flex gap-2.5 rounded-xl border border-ts-border bg-ts-surface-2 px-3 py-2">
                 <div className="flex flex-col items-center pt-1">
-                  <div className={`h-2.5 w-2.5 rounded-full ${isEdge ? 'bg-ts-accent' : 'bg-white/30'}`} />
-                  {i < stops.length - 1 ? <div className="mt-1 h-full min-h-4 w-px bg-white/10" /> : null}
+                  <div className={`h-2.5 w-2.5 rounded-full ${isEdge ? 'bg-ts-accent' : 'bg-ts-text-3'}`} />
+                  {i < stops.length - 1 ? <div className="mt-1 h-full min-h-4 w-px bg-ts-border" /> : null}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-semibold text-ts-text-1">{stop.name || `Stop ${i + 1}`}</div>
@@ -550,7 +550,7 @@ export default function TTImportPage() {
             onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFile(file); }}
           />
           {parseError ? (
-            <div className="mt-4 flex items-start gap-2 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            <div className="mt-4 flex items-start gap-2 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-600">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
               {parseError}
             </div>
@@ -730,7 +730,7 @@ export default function TTImportPage() {
                       {currentValue ? (
                         <button
                           onClick={() => updateMapping(field.key, '')}
-                          className="shrink-0 rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-red-300 transition hover:bg-red-500/20"
+                          className="shrink-0 rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-red-600 transition hover:bg-red-500/20"
                         >
                           <Trash2 className="h-3 w-3" />
                         </button>
@@ -747,7 +747,7 @@ export default function TTImportPage() {
             <SectionCard title="Validation" icon={<AlertCircle className="h-4 w-4" />}>
               <div className="space-y-2">
                 {transformResult.errors.map((err, i) => (
-                  <div key={i} className="flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-300">
+                  <div key={i} className="flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-600">
                     <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     <span className="font-semibold">{err.field}:</span> {err.message}
                   </div>
@@ -886,8 +886,8 @@ export default function TTImportPage() {
               {saveResult ? (
                 <div className={`flex items-start gap-2 rounded-2xl border px-4 py-3 text-sm ${
                   saveResult.includes('success')
-                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-                    : 'border-red-500/30 bg-red-500/10 text-red-300'
+                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600'
+                    : 'border-red-500/30 bg-red-500/10 text-red-600'
                 }`}>
                   {saveResult.includes('success')
                     ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
