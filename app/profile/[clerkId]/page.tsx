@@ -1,56 +1,14 @@
 "use client";
 
-import { useQuery, usePaginatedQuery } from "convex/react";
+import { useQuery, useConvex } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import Link from "next/link";
-import { use, useMemo, useEffect, useRef } from "react";
+import { use, useMemo } from "react";
 import { TripRow } from "@/components/TripRow";
 import { FriendRequestButton } from "@/components/FriendRequestButton";
+import { useDayByDayTrips } from "@/components/useDayByDayTrips";
 import { useRequireAuth } from "@/components/AuthGate";
-import { ArrowLeft, Lock, Users } from "lucide-react";
-
-type TripGroup = {
-  dateLabel: string;
-  dateKey: string;
-  trips: TripRecord[];
-};
-
-type TripRecord = {
-  _id: string;
-  user?: string;
-  on_trip_with?: string[];
-  logged_at?: number;
-  service_date: number;
-  transport_type: string;
-  service_number?: string;
-  operator?: string;
-  operator_slug?: string;
-  scheduled_departure?: string;
-  actual_departure?: string;
-  scheduled_arrival?: string;
-  actual_arrival?: string;
-  origin_name?: string;
-  origin_stop_code?: string;
-  destination_name?: string;
-  destination_stop_code?: string;
-  units?: { unit_number?: string; unit_reg?: string; unit_type?: string; livery?: string; livery_left?: string }[];
-  unit_number?: string;
-  unit_reg?: string;
-  unit_type?: string;
-  livery_name?: string;
-  livery_css?: string;
-  notes?: string;
-  first_time?: boolean;
-  first_units?: string[];
-  vehicle_key?: string;
-  vehicle_keys?: string[];
-  distance_km?: number;
-};
-
-function formatDateKey(timestamp: number) {
-  const date = new Date(timestamp);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
+import { ArrowLeft, Lock } from "lucide-react";
 
 export default function UserProfilePage({
   params,
@@ -58,72 +16,48 @@ export default function UserProfilePage({
   params: Promise<{ clerkId: string }>;
 }) {
   const { clerkId } = use(params);
+  const convex = useConvex();
   const currentUser = useQuery(api.functions.friends.getUserByClerkId, { clerkId });
   const access = useQuery(api.functions.friends.canViewProfile, { targetUserId: clerkId });
-  const counts = useQuery(
-    api.functions.trips.getUserTripCount,
-    currentUser ? { userId: clerkId } : "skip",
+
+  const timeZone = useMemo(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
+    [],
   );
 
-  const { results: trips, status, loadMore } = usePaginatedQuery(
-    api.functions.trips.getUserTripsPaginated,
-    currentUser ? { userId: clerkId } : "skip",
-    { initialNumItems: 200 },
-  );
+  const canLoadTrips = Boolean(currentUser && access?.allowed);
 
-  const sentinelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && status === "CanLoadMore") {
-          loadMore(50);
-        }
+  const fetchers = useMemo(
+    () => ({
+      fetchLatestDay: async () => {
+        if (!canLoadTrips) return null;
+        return await convex.query(api.functions.trips.getUserLatestTripDay, {
+          userId: clerkId,
+          timeZone,
+        });
       },
-      { rootMargin: "200px" },
-    );
+      fetchDayBefore: async (beforeDay: string) => {
+        if (!canLoadTrips) return null;
+        return await convex.query(api.functions.trips.getUserTripDayBefore, {
+          userId: clerkId,
+          beforeDay,
+          timeZone,
+        });
+      },
+      fetchTripsForDay: async (day: string) => {
+        if (!canLoadTrips) return [];
+        return await convex.query(api.functions.trips.getUserTripsForDay, {
+          userId: clerkId,
+          day,
+          timeZone,
+        });
+      },
+    }),
+    [convex, clerkId, timeZone, canLoadTrips],
+  );
 
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [status, loadMore]);
-
-  const groupedTrips = useMemo<TripGroup[]>(() => {
-    const combinedTrips = trips ?? [];
-    if (combinedTrips.length === 0) return [];
-
-    const groups = new Map<string, TripGroup>();
-
-    combinedTrips
-      .slice()
-      .sort((a, b) => {
-        const aTs = a.service_date > 1_000_000_000_000 ? a.service_date : a.service_date * 1000;
-        const bTs = b.service_date > 1_000_000_000_000 ? b.service_date : b.service_date * 1000;
-        const aKey = formatDateKey(aTs);
-        const bKey = formatDateKey(bTs);
-        if (aKey !== bKey) return bKey.localeCompare(aKey);
-        return (b.scheduled_departure ?? "").localeCompare(a.scheduled_departure ?? "");
-      })
-      .forEach((trip) => {
-      const timestamp = trip.service_date > 1_000_000_000_000
-        ? trip.service_date
-        : trip.service_date * 1000;
-      const dateKey = formatDateKey(timestamp);
-      const dateLabel = new Date(timestamp).toLocaleDateString("en-GB", {
-        day: "numeric", month: "long", year: "numeric",
-      });
-      const existing = groups.get(dateKey);
-      if (existing) {
-        existing.trips.push(trip);
-        return;
-      }
-      groups.set(dateKey, { dateKey, dateLabel, trips: [trip] });
-    });
-
-    return [...groups.values()];
-  }, [trips]);
+  const { days, initialLoading, loadingMore, hasMore, loadMore, sentinelRef } =
+    useDayByDayTrips(canLoadTrips ? clerkId : undefined, fetchers);
 
   const auth = useRequireAuth();
   if (auth) return auth;
@@ -177,12 +111,6 @@ export default function UserProfilePage({
             </div>
             <div>
               <h1 className="text-2xl md:text-3xl font-bold text-ts-text-1">{currentUser.username}</h1>
-              <div className="flex items-center gap-2 mt-1">
-                <Users className="h-3.5 w-3.5 text-ts-text-3" />
-                <span className="text-sm text-ts-text-3">
-                  {counts?.trips ?? 0} trips · {counts?.days ?? 0} days
-                </span>
-              </div>
             </div>
           </div>
           <FriendRequestButton targetUserId={clerkId} />
@@ -193,19 +121,19 @@ export default function UserProfilePage({
 
       <div className="border-b border-white/10 mb-6 md:mb-8" />
 
-      {status === "LoadingFirstPage" ? (
+      {initialLoading ? (
         <div className="text-center text-slate-500 py-10">Loading...</div>
-      ) : trips.length === 0 ? (
+      ) : days.length === 0 ? (
         <div className="text-center py-10 text-slate-400">No trips yet.</div>
       ) : (
         <>
-          {groupedTrips.map(({ dateKey, dateLabel, trips: tripList }) => (
-            <div key={dateKey} className="mb-8">
+          {days.map(({ day, label, trips: tripList }) => (
+            <div key={day} className="mb-8">
 
               <div className="sticky top-0 z-10 bg-ts-bg pt-1 pb-2">
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <h3 className="text-base md:text-lg font-bold text-ts-text-1 truncate">{dateLabel}</h3>
+                    <h3 className="text-base md:text-lg font-bold text-ts-text-1 truncate">{label}</h3>
                     <span className="shrink-0 text-xs text-slate-500 tabular-nums">
                       {tripList.length} {tripList.length === 1 ? "trip" : "trips"}
                     </span>
@@ -222,9 +150,21 @@ export default function UserProfilePage({
             </div>
           ))}
 
-          <div ref={sentinelRef} className="py-4 text-center text-sm text-slate-500">
-            {status === "LoadingMore" && "Loading more trips..."}
-            {status === "Exhausted" && "All trips loaded"}
+          {/* Auto-load sentinel (loads one more day when scrolled into view) */}
+          {hasMore && <div ref={sentinelRef} aria-hidden="true" className="h-1" />}
+
+          <div className="py-4 text-center text-sm text-slate-500">
+            {loadingMore && "Loading more trips..."}
+            {!hasMore && "All trips loaded"}
+            {hasMore && !loadingMore && (
+              <button
+                type="button"
+                onClick={() => void loadMore()}
+                className="rounded-full border border-white/10 bg-white/5 px-6 py-2 text-sm font-medium text-ts-text-1 transition hover:border-ts-accent/50 hover:bg-ts-accent/10 hover:text-ts-accent"
+              >
+                Load more
+              </button>
+            )}
           </div>
         </>
       )}

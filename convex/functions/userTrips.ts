@@ -28,6 +28,137 @@ function formatDateInTimezone(timestamp: number, timeZone: string): string {
   return `${year}-${month}-${day}`;
 }
 
+function formatDayString(timestampMs: number, timeZone?: string): string {
+  return formatDateInTimezone(timestampMs, timeZone ?? "UTC");
+}
+
+function parseDayKey(day: string): { year: number; month: number; day: number } | null {
+  const parts = day.split("-").map(Number);
+  if (parts.length !== 3) return null;
+  const [year, month, dayNum] = parts;
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(dayNum)) return null;
+  if (!year || !month || !dayNum) return null;
+  if (month < 1 || month > 12 || dayNum < 1 || dayNum > 31) return null;
+  return { year, month, day: dayNum };
+}
+
+function getDayStartMs(year: number, month: number, day: number, timeZone?: string): number {
+  if (timeZone) return getLocalDayStart(year, month, day, timeZone);
+  return getDayNumber(Date.UTC(year, month - 1, day, 0, 0, 0)) * 86_400_000;
+}
+
+// service_date is stored inconsistently (ms for newer trips, seconds for older
+// ones), so raw index order is not chronological across formats. Within a
+// single format raw order is chronological, so read the head of each format
+// range and merge in JS on the normalized value.
+const MS_THRESHOLD = 1_000_000_000_000;
+
+async function getLatestOwnedTrip(
+  ctx: QueryCtx,
+  userId: string,
+  beforeMs?: number,
+): Promise<Doc<"tripLogs"> | null> {
+  const upperMs = beforeMs ?? Infinity;
+  const upperSec = beforeMs !== undefined ? Math.floor(beforeMs / 1_000) : Infinity;
+  const msHead: Promise<Doc<"tripLogs">[]> =
+    upperMs <= MS_THRESHOLD
+      ? Promise.resolve([])
+      : upperMs === Infinity
+        ? ctx.db
+            .query("tripLogs")
+            .withIndex("by_user_service_date", (q) =>
+              q.eq("user", userId).gte("service_date", MS_THRESHOLD),
+            )
+            .order("desc")
+            .take(1)
+        : ctx.db
+            .query("tripLogs")
+            .withIndex("by_user_service_date", (q) =>
+              q.eq("user", userId).gte("service_date", MS_THRESHOLD).lt("service_date", upperMs),
+            )
+            .order("desc")
+            .take(1);
+  const secHead: Promise<Doc<"tripLogs">[]> = ctx.db
+    .query("tripLogs")
+    .withIndex("by_user_service_date", (q) =>
+      q.eq("user", userId).lt("service_date", Math.min(upperSec, MS_THRESHOLD)),
+    )
+    .order("desc")
+    .take(1);
+  const [msPage, secPage] = await Promise.all([msHead, secHead]);
+
+  const candidates = [...msPage, ...secPage];
+  if (candidates.length === 0) return null;
+  candidates.sort(
+    (a, b) => normalizeServiceDate(b.service_date) - normalizeServiceDate(a.service_date),
+  );
+  return candidates[0];
+}
+
+async function getParticipationTrips(ctx: QueryCtx, userId: string): Promise<Doc<"tripLogs">[]> {
+  const participations = await ctx.db
+    .query("tripParticipants")
+    .withIndex("by_user", (q) => q.eq("user", userId))
+    .collect();
+  if (participations.length === 0) return [];
+  const trips = await Promise.all(participations.map((p) => ctx.db.get(p.tripId)));
+  return trips.filter((trip): trip is NonNullable<typeof trip> => trip !== null);
+}
+
+function maxNormalizedServiceDate(trips: Doc<"tripLogs">[]): number | null {
+  let max: number | null = null;
+  for (const trip of trips) {
+    const ts = normalizeServiceDate(trip.service_date);
+    if (max === null || ts > max) max = ts;
+  }
+  return max;
+}
+
+/**
+ * Latest day (YYYY-MM-DD) that has any trip for the user (owned or joined).
+ * Reads at most 2 owned index heads + the user's participations, so it stays
+ * cheap no matter how large the trip log grows.
+ */
+export async function getLatestTripDay(
+  ctx: QueryCtx,
+  userId: string,
+  timeZone?: string,
+): Promise<string | null> {
+  const [owned, participated] = await Promise.all([
+    getLatestOwnedTrip(ctx, userId),
+    getParticipationTrips(ctx, userId),
+  ]);
+  const max = maxNormalizedServiceDate([...(owned ? [owned] : []), ...participated]);
+  if (max === null) return null;
+  return formatDayString(max, timeZone);
+}
+
+/**
+ * Latest day strictly before `beforeDay` that has any trip for the user.
+ * Used to page backwards one day at a time.
+ */
+export async function getTripDayBefore(
+  ctx: QueryCtx,
+  userId: string,
+  beforeDay: string,
+  timeZone?: string,
+): Promise<string | null> {
+  const parsed = parseDayKey(beforeDay);
+  if (!parsed) return null;
+  const boundMs = getDayStartMs(parsed.year, parsed.month, parsed.day, timeZone);
+  const [owned, participated] = await Promise.all([
+    getLatestOwnedTrip(ctx, userId, boundMs),
+    getParticipationTrips(ctx, userId),
+  ]);
+  const candidates = [
+    ...(owned ? [owned] : []),
+    ...participated.filter((trip) => normalizeServiceDate(trip.service_date) < boundMs),
+  ];
+  const max = maxNormalizedServiceDate(candidates);
+  if (max === null) return null;
+  return formatDayString(max, timeZone);
+}
+
 function getLocalDayStart(year: number, month: number, day: number, timeZone: string): number {
   const targetDate = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   const hourMs = 3_600_000;
