@@ -1,11 +1,173 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { useQuery } from "convex/react";
+import { useState, useMemo, useEffect } from "react";
+import { useConvex } from "convex/react";
 import { useUser } from "@clerk/nextjs";
 import { api } from "@/convex/_generated/api";
 import { LoaderCircle, Info } from "lucide-react";
 import { useRequireAuth } from "@/components/AuthGate";
+
+// One month of stats aggregation, as returned by getUserStatsChunk.
+type StatsChunk = {
+  tripCount: number;
+  totalDistanceKm: number;
+  totalMinutes: number;
+  totalDelayMins: number;
+  punctualityCount: number;
+  tripWithTimes: number;
+  liveryCounts: Record<string, { count: number; css: string; name: string }>;
+  typeCounts: Record<string, number>;
+  operatorCounts: Record<string, { count: number; slug: string }>;
+  tripsByMonth: Record<string, number>;
+  routeGroups: Record<string, { count: number; serviceNum: string; stationPairs: Record<string, number> }>;
+  companionCounts: Record<string, number>;
+  dayOfWeekCounts: Record<string, number>;
+  unitTypeCounts: Record<string, number>;
+  stopCounts: Record<string, number>;
+  dailyCounts: Record<string, number>;
+  dates: string[];
+};
+
+const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
+function mergeStatChunks(chunks: StatsChunk[], availableYears: number[]) {
+  const totalTrips = chunks.reduce((sum, c) => sum + c.tripCount, 0);
+  if (totalTrips === 0) return null;
+
+  const totalDistanceKm = chunks.reduce((sum, c) => sum + c.totalDistanceKm, 0);
+  const totalMinutes = chunks.reduce((sum, c) => sum + c.totalMinutes, 0);
+  const totalDelayMins = chunks.reduce((sum, c) => sum + c.totalDelayMins, 0);
+  const punctualityCount = chunks.reduce((sum, c) => sum + c.punctualityCount, 0);
+  const tripWithTimes = chunks.reduce((sum, c) => sum + c.tripWithTimes, 0);
+
+  const mergeCounts = (pick: (c: StatsChunk) => Record<string, number>) => {
+    const out: Record<string, number> = {};
+    for (const c of chunks) {
+      for (const [k, v] of Object.entries(pick(c))) out[k] = (out[k] ?? 0) + v;
+    }
+    return out;
+  };
+
+  const liveryCounts: Record<string, { count: number; css: string; name: string }> = {};
+  for (const c of chunks) {
+    for (const [name, entry] of Object.entries(c.liveryCounts)) {
+      const existing = liveryCounts[name];
+      if (existing) existing.count += entry.count;
+      else liveryCounts[name] = { ...entry };
+    }
+  }
+
+  const operatorCounts: Record<string, { count: number; slug: string }> = {};
+  for (const c of chunks) {
+    for (const [name, entry] of Object.entries(c.operatorCounts)) {
+      const existing = operatorCounts[name];
+      if (existing) existing.count += entry.count;
+      else operatorCounts[name] = { ...entry };
+    }
+  }
+
+  const routeGroups: Record<string, { count: number; serviceNum: string; stationPairs: Record<string, number> }> = {};
+  for (const c of chunks) {
+    for (const [key, group] of Object.entries(c.routeGroups)) {
+      const existing = routeGroups[key];
+      if (existing) {
+        existing.count += group.count;
+        for (const [pair, n] of Object.entries(group.stationPairs)) {
+          existing.stationPairs[pair] = (existing.stationPairs[pair] ?? 0) + n;
+        }
+      } else {
+        routeGroups[key] = {
+          count: group.count,
+          serviceNum: group.serviceNum,
+          stationPairs: { ...group.stationPairs },
+        };
+      }
+    }
+  }
+
+  const typeCounts = mergeCounts((c) => c.typeCounts);
+  const tripsByMonth = mergeCounts((c) => c.tripsByMonth);
+  const companionCounts = mergeCounts((c) => c.companionCounts);
+  const unitTypeCounts = mergeCounts((c) => c.unitTypeCounts);
+  const stopCounts = mergeCounts((c) => c.stopCounts);
+  const dailyCounts = mergeCounts((c) => c.dailyCounts);
+  const dayOfWeekCounts = mergeCounts((c) => c.dayOfWeekCounts);
+
+  const sortedDates = [...new Set(chunks.flatMap((c) => c.dates))].sort();
+  let maxStreak = 0;
+  let currentStreak = 0;
+  for (let i = 0; i < sortedDates.length; i++) {
+    if (i > 0) {
+      const prev = new Date(`${sortedDates[i - 1]}T00:00:00`);
+      const curr = new Date(`${sortedDates[i]}T00:00:00`);
+      currentStreak =
+        (curr.getTime() - prev.getTime()) / (1000 * 3600 * 24) === 1
+          ? currentStreak + 1
+          : 1;
+    } else {
+      currentStreak = 1;
+    }
+    maxStreak = Math.max(maxStreak, currentStreak);
+  }
+
+  const topLiveries = Object.values(liveryCounts)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+  const topTypes = Object.entries(typeCounts)
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count);
+  const topOperators = Object.entries(operatorCounts)
+    .map(([name, { count, slug }]) => ({ name, count, slug }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
+  const tripsPerMonth = Object.entries(tripsByMonth)
+    .map(([month, count]) => ({ month, count }))
+    .sort((a, b) => a.month.localeCompare(b.month));
+  const topRoutes = Object.values(routeGroups)
+    .map((g) => ({
+      route: `${g.serviceNum}: ${
+        Object.entries(g.stationPairs).sort((a, b) => b[1] - a[1])[0][0]
+      }`,
+      count: g.count,
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+  const topCompanion =
+    Object.entries(companionCounts).sort((a, b) => b[1] - a[1])[0] ?? [null, 0];
+
+  return {
+    totalTrips,
+    totalDistanceKm: Math.round(totalDistanceKm),
+    totalMinutes: Math.round(totalMinutes),
+    topLiveries,
+    topTypes,
+    topOperators,
+    tripsPerMonth,
+    tripsByType: topTypes,
+    topRoutes,
+    uniqueOperators: Object.keys(operatorCounts).length,
+    uniqueRoutes: Object.keys(routeGroups).length,
+    availableYears,
+    firstTripDate: sortedDates[0] ?? null,
+    latestTripDate: sortedDates[sortedDates.length - 1] ?? null,
+    onTimePercentage:
+      tripWithTimes > 0 ? Math.round((punctualityCount / tripWithTimes) * 100) : 100,
+    avgDelay: tripWithTimes > 0 ? (totalDelayMins / tripWithTimes).toFixed(1) : 0,
+    topCompanionName: topCompanion[0] as string | null,
+    topCompanionCount: topCompanion[1] as number,
+    maxStreak,
+    dayOfWeekCounts: Object.entries(dayOfWeekCounts).map(([day, count]) => ({ day, count })),
+    dailyCounts,
+    topUnitTypes: Object.entries(unitTypeCounts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10),
+    topStops: Object.entries(stopCounts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10),
+  };
+}
 
 // --- Sub-components ---
 
@@ -196,17 +358,105 @@ function parseDateKey(dateKey: string) {
 
 export default function StatsPage() {
   const { user } = useUser();
+  const convex = useConvex();
+  const userId = user?.id;
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
   const [selectedYear, setSelectedYear] = useState<number | undefined>(
     new Date().getFullYear(),
   );
   const [weekOffset, setWeekOffset] = useState(0);
 
-  // 1. Define stats FIRST so it is available for the hooks below
-  const stats = useQuery(
-    api.functions.stats.getUserStats,
-    user?.id ? { user: user.id, year: selectedYear, timeZone } : "skip",
+  // 1. Define stats FIRST so it is available for the hooks below.
+  // Stats are fetched one month at a time (each backend chunk is a bounded
+  // read) and merged here, so large logs never blow the per-execution
+  // byte budget the way a whole-year collect does.
+  const [stats, setStats] = useState<ReturnType<typeof mergeStatChunks> | undefined>(
+    undefined,
   );
+
+  // Reset to loading whenever the request changes, during render so stale
+  // stats never flash (React derived-state pattern).
+  const requestKey = `${userId ?? ""}|${selectedYear ?? "all"}|${timeZone}`;
+  const [loadedKey, setLoadedKey] = useState(requestKey);
+  if (loadedKey !== requestKey) {
+    setLoadedKey(requestKey);
+    setStats(undefined);
+  }
+
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const cachedYears = await convex.query(api.functions.stats.getUserStatYears, {
+          user: userId,
+        });
+        if (cancelled) return;
+
+        let targetYears: number[];
+        if (selectedYear !== undefined) {
+          targetYears = [selectedYear];
+        } else if (cachedYears.length > 0) {
+          targetYears = cachedYears;
+        } else {
+          // No day cache: discover years by walking back via bounded
+          // single-day lookups instead of scanning the log.
+          const latest = await convex.query(api.functions.trips.getMyLatestTripDay, {
+            user: userId,
+            timeZone,
+          });
+          if (cancelled) return;
+          if (!latest) {
+            setStats(null);
+            return;
+          }
+          targetYears = [Number(latest.slice(0, 4))];
+          for (let i = 0; i < 100; i++) {
+            const boundYear = targetYears[targetYears.length - 1];
+            const prev = await convex.query(api.functions.trips.getMyTripDayBefore, {
+              user: userId,
+              beforeDay: `${boundYear}-01-01`,
+              timeZone,
+            });
+            if (cancelled) return;
+            if (!prev) break;
+            const prevYear = Number(prev.slice(0, 4));
+            if (targetYears.includes(prevYear)) break;
+            targetYears.push(prevYear);
+          }
+          targetYears.sort((a, b) => b - a);
+        }
+
+        const chunkResults = await Promise.all(
+          targetYears.flatMap((year) =>
+            MONTHS.map((month) =>
+              convex
+                .query(api.functions.stats.getUserStatsChunk, {
+                  user: userId,
+                  year,
+                  month,
+                  timeZone,
+                })
+                .catch(() => null),
+            ),
+          ),
+        );
+        if (cancelled) return;
+
+        const chunks = chunkResults.filter(
+          (c): c is StatsChunk => c !== null,
+        );
+        const yearsForDropdown =
+          cachedYears.length > 0 ? cachedYears : targetYears;
+        setStats(mergeStatChunks(chunks, yearsForDropdown));
+      } catch {
+        if (!cancelled) setStats(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [convex, userId, selectedYear, timeZone, loadedKey]);
 
   // 2. Now you can safely use stats.dailyCounts in useMemo
   const weeklyStats = useMemo(() => {

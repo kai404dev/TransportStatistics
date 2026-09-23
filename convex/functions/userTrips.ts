@@ -235,6 +235,129 @@ export async function getAllUserTrips(ctx: QueryCtx, userId: string): Promise<Do
   return sortTripsDesc([...byId.values()]);
 }
 
+/**
+ * Trips for a user whose normalized service_date falls in a UTC year.
+ * Filters at the DB level via the by_user_service_date index (both ms and
+ * seconds storage formats), so year-scoped callers like stats never read
+ * the whole log into one execution's byte budget.
+ */
+export async function getUserTripsForYear(
+  ctx: QueryCtx,
+  userId: string,
+  year: number,
+): Promise<Doc<"tripLogs">[]> {
+  const yearStartMs = Date.UTC(year, 0, 1);
+  const yearEndMs = Date.UTC(year + 1, 0, 1);
+  const yearStartSec = Math.floor(yearStartMs / 1_000);
+  const yearEndSec = Math.floor(yearEndMs / 1_000);
+
+  const [ownedMs, ownedSec] = await Promise.all([
+    ctx.db
+      .query("tripLogs")
+      .withIndex("by_user_service_date", (q) =>
+        q.eq("user", userId).gte("service_date", yearStartMs).lt("service_date", yearEndMs),
+      )
+      .collect(),
+    ctx.db
+      .query("tripLogs")
+      .withIndex("by_user_service_date", (q) =>
+        q.eq("user", userId).gte("service_date", yearStartSec).lt("service_date", yearEndSec),
+      )
+      .collect(),
+  ]);
+
+  const byId = new Map<string, Doc<"tripLogs">>();
+  for (const trip of ownedMs) byId.set(String(trip._id), trip);
+  for (const trip of ownedSec) byId.set(String(trip._id), trip);
+
+  const participations = await ctx.db
+    .query("tripParticipants")
+    .withIndex("by_user", (q) => q.eq("user", userId))
+    .collect();
+
+  const missingTrips = (
+    await Promise.all(
+      participations
+        .filter((p) => !byId.has(String(p.tripId)))
+        .map((p) => ctx.db.get(p.tripId)),
+    )
+  ).filter((trip): trip is NonNullable<typeof trip> => trip !== null);
+
+  for (const trip of missingTrips) {
+    const normalized =
+      trip.service_date > MS_THRESHOLD ? trip.service_date : trip.service_date * 1000;
+    if (normalized >= yearStartMs && normalized < yearEndMs) {
+      byId.set(String(trip._id), trip);
+    }
+  }
+
+  return sortTripsDesc([...byId.values()]);
+}
+
+/**
+ * Trips for a user whose normalized service_date falls in a UTC month.
+ * Same DB-level index filtering as getUserTripsForYear but scoped to a
+ * single month, so each execution reads a bounded slice that stays far below
+ * the 16MB per-execution byte budget no matter how large the log grows.
+ * Backs the chunked stats feed (one query per month, merged client-side).
+ */
+export async function getUserTripsForMonth(
+  ctx: QueryCtx,
+  userId: string,
+  year: number,
+  month: number,
+): Promise<Doc<"tripLogs">[]> {
+  if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) {
+    return [];
+  }
+  const monthStartMs = Date.UTC(year, month - 1, 1);
+  const monthEndMs = Date.UTC(year, month, 1);
+  const monthStartSec = Math.floor(monthStartMs / 1_000);
+  const monthEndSec = Math.floor(monthEndMs / 1_000);
+
+  const [ownedMs, ownedSec] = await Promise.all([
+    ctx.db
+      .query("tripLogs")
+      .withIndex("by_user_service_date", (q) =>
+        q.eq("user", userId).gte("service_date", monthStartMs).lt("service_date", monthEndMs),
+      )
+      .collect(),
+    ctx.db
+      .query("tripLogs")
+      .withIndex("by_user_service_date", (q) =>
+        q.eq("user", userId).gte("service_date", monthStartSec).lt("service_date", monthEndSec),
+      )
+      .collect(),
+  ]);
+
+  const byId = new Map<string, Doc<"tripLogs">>();
+  for (const trip of ownedMs) byId.set(String(trip._id), trip);
+  for (const trip of ownedSec) byId.set(String(trip._id), trip);
+
+  const participations = await ctx.db
+    .query("tripParticipants")
+    .withIndex("by_user", (q) => q.eq("user", userId))
+    .collect();
+
+  const missingTrips = (
+    await Promise.all(
+      participations
+        .filter((p) => !byId.has(String(p.tripId)))
+        .map((p) => ctx.db.get(p.tripId)),
+    )
+  ).filter((trip): trip is NonNullable<typeof trip> => trip !== null);
+
+  for (const trip of missingTrips) {
+    const normalized =
+      trip.service_date > MS_THRESHOLD ? trip.service_date : trip.service_date * 1000;
+    if (normalized >= monthStartMs && normalized < monthEndMs) {
+      byId.set(String(trip._id), trip);
+    }
+  }
+
+  return sortTripsDesc([...byId.values()]);
+}
+
 export async function getUserTripsForDateRange(
   ctx: QueryCtx,
   userId: string,
