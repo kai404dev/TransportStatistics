@@ -32,6 +32,11 @@ type TripUnit = {
 type TripLog = {
   _id: string | number;
   units?: TripUnit[] | null;
+  distance_km?: number | null;
+  actual_departure?: string | null;
+  actual_arrival?: string | null;
+  scheduled_departure?: string | null;
+  scheduled_arrival?: string | null;
 };
 
 type DbUnit = {
@@ -70,6 +75,8 @@ type FleetVehicle = {
   withdrawn: boolean;
   ridden: boolean;
   times_ridden: number;
+  distance_km: number;
+  time_minutes: number;
   _matchingTripIds?: Set<string>;
 };
 
@@ -116,7 +123,25 @@ function collectTripIds(indices: Array<Set<string> | undefined>) {
     if (!index) continue;
     for (const tripId of index) matchingTripIds.add(tripId);
   }
+
   return matchingTripIds;
+}
+
+function tripDurationMinutes(trip: TripLog) {
+  const departure = trip.actual_departure ?? trip.scheduled_departure;
+  const arrival = trip.actual_arrival ?? trip.scheduled_arrival;
+  if (!departure || !arrival) return 0;
+  const start = Date.parse(`1970-01-01T${departure}`);
+  const end = Date.parse(`1970-01-01T${arrival}`);
+  const duration = (end - start) / 60000;
+  return duration > 0 && duration < 1440 ? duration : 0;
+}
+
+function tripMetrics(trips: TripLog[]) {
+  return {
+    distance_km: trips.reduce((total, trip) => total + (trip.distance_km ?? 0), 0),
+    time_minutes: trips.reduce((total, trip) => total + tripDurationMinutes(trip), 0),
+  };
 }
 
 function sortVehicles(
@@ -277,6 +302,7 @@ export const GET = withApiKeyAuth(async (_auth, request: Request) => {
     const reg = String(bv.reg ?? "");
     const trips = getMatchingTrips(num, reg);
     const matchingTripIds = new Set(trips.map((trip) => String(trip._id)));
+    const metrics = tripMetrics(trips);
     const currentName = bv.livery?.name || bv.branding || "Unknown";
     const currentCss = bv.livery?.left || "";
     const prevUnit = getPrevLiveryUnit(trips, num, reg, currentName, currentCss);
@@ -297,6 +323,7 @@ export const GET = withApiKeyAuth(async (_auth, request: Request) => {
       withdrawn: bv.withdrawn ?? false,
       ridden: trips.length > 0,
       times_ridden: trips.length,
+      ...metrics,
       _matchingTripIds: matchingTripIds,
     };
   });
@@ -306,6 +333,7 @@ export const GET = withApiKeyAuth(async (_auth, request: Request) => {
     const reg = String(unit.unit_reg ?? "");
     const trips = getMatchingTrips(num, reg);
     const matchingTripIds = new Set(trips.map((trip) => String(trip._id)));
+    const metrics = tripMetrics(trips);
     const currentType = typeMap.get(unit.type_id);
     const currentLivery = liveryMap.get(unit.livery_id);
     const currentName = currentLivery?.livery_name || "Unknown";
@@ -326,6 +354,7 @@ export const GET = withApiKeyAuth(async (_auth, request: Request) => {
       withdrawn: unit.withdrawn ?? false,
       ridden: trips.length > 0,
       times_ridden: trips.length,
+      ...metrics,
       _matchingTripIds: matchingTripIds,
     };
   });
@@ -352,6 +381,7 @@ export const GET = withApiKeyAuth(async (_auth, request: Request) => {
           const existing = vehiclesByKey.get(key);
           const matchingTripIds = new Set<string>(existing?._matchingTripIds ?? []);
           matchingTripIds.add(String(trip._id));
+          const metrics = tripMetrics([...matchingTripIds].map((id) => tripById.get(id)).filter((item): item is TripLog => Boolean(item)));
           const currentName = String(unit.livery ?? "Unknown");
           const currentCss = String(unit.livery_left ?? "");
 
@@ -365,6 +395,7 @@ export const GET = withApiKeyAuth(async (_auth, request: Request) => {
             withdrawn: existing?.withdrawn ?? false,
             ridden: true,
             times_ridden: matchingTripIds.size,
+            ...metrics,
             _matchingTripIds: matchingTripIds,
             livery: {
               current_bustimes_livery: { name: currentName, css: currentCss },
@@ -416,6 +447,8 @@ export const GET = withApiKeyAuth(async (_auth, request: Request) => {
     }
     const totalRidden = matchingTripIds.size > 0 || variants.some(v => v.ridden);
     const totalTimes = matchingTripIds.size || Math.max(0, ...variants.map(v => v.times_ridden || 0));
+    const distanceKm = Math.max(0, ...variants.map(v => v.distance_km || 0));
+    const timeMinutes = Math.max(0, ...variants.map(v => v.time_minutes || 0));
 
     // 4. Extract non-empty values from ANY variant in the group
     const fleetNumber = variants.find(v => normalizeKey(v.unit_number) !== "")?.unit_number;
@@ -432,6 +465,8 @@ export const GET = withApiKeyAuth(async (_auth, request: Request) => {
       withdrawn: !isActuallyActive,
       ridden: totalRidden,
       times_ridden: totalTimes,
+      distance_km: distanceKm,
+      time_minutes: timeMinutes,
     };
   });
 

@@ -7,6 +7,7 @@ import { FleetRow } from "./FleetRow";
 import { FleetCard } from "./FleetGrid";
 
 type ViewMode = "row" | "grid";
+type SortKey = "fleet" | "times" | "distance" | "time";
 
 const VIEW_MODE_STORAGE_KEY = "fleet-view-mode";
 
@@ -21,6 +22,7 @@ export function FleetTab({ operatorCode }: Pick<TabProps, "operatorCode">) {
   const [viewMode, setViewMode] = useState<ViewMode>("row");
   const [fleet, setFleet] = useState<Vehicle[]>([]);
   const [isLoading, setIsLoading] = useState(Boolean(operatorCode));
+  const [sortKey, setSortKey] = useState<SortKey>("fleet");
 
   // Load persisted view mode on mount (client only, avoids SSR hydration mismatch)
   useEffect(() => {
@@ -43,8 +45,13 @@ export function FleetTab({ operatorCode }: Pick<TabProps, "operatorCode">) {
   }, [operatorCode, fleet.length]);
 
   const displayedFleet = useMemo(
-    () => fleet.filter((v) => showWithdrawn || !v.withdrawn),
-    [fleet, showWithdrawn]
+    () => [...fleet.filter((v) => showWithdrawn || !v.withdrawn)].sort((a, b) => {
+      if (sortKey === "times") return b.times_ridden - a.times_ridden;
+      if (sortKey === "distance") return b.distance_km - a.distance_km;
+      if (sortKey === "time") return b.time_minutes - a.time_minutes;
+      return String(a.unit_number ?? "").localeCompare(String(b.unit_number ?? ""), undefined, { numeric: true, sensitivity: "base" });
+    }),
+    [fleet, showWithdrawn, sortKey]
   );
 
   const groupedByType = useMemo(() => {
@@ -154,6 +161,17 @@ export function FleetTab({ operatorCode }: Pick<TabProps, "operatorCode">) {
               <LayoutGrid size={13} strokeWidth={2.5} />
             </button>
           </div>
+          <label className="flex items-center gap-2 text-[10px] font-bold text-[var(--color-ts-text-3)]">
+            <span className="hidden sm:inline">Sort</span>
+            <select value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}
+              aria-label="Sort vehicles"
+              className="rounded-full border border-[var(--color-ts-border-soft)] bg-[var(--color-ts-surface)] px-3 py-1.5 text-[10px] text-[var(--color-ts-text-2)] outline-none">
+              <option value="fleet">Fleet number</option>
+              <option value="times">Times ridden</option>
+              <option value="distance">Distance</option>
+              <option value="time">Time ridden</option>
+            </select>
+          </label>
         </div>
 
         <span className="text-[10px] font-bold text-[var(--color-ts-text-3)] tracking-widest">
@@ -196,6 +214,7 @@ export function FleetTab({ operatorCode }: Pick<TabProps, "operatorCode">) {
             <FleetRow
               key={vehicle["bt-id"] ?? vehicle.bustimes_id}
               vehicle={vehicle}
+              href={`/completion?operator=${encodeURIComponent(operatorCode)}&code=${encodeURIComponent(operatorCode)}&fleet=${encodeURIComponent(vehicle.unit_number ?? "")}&reg=${encodeURIComponent(vehicle.reg ?? "")}`}
             />
           ))}
         </div>
@@ -217,6 +236,7 @@ export function FleetTab({ operatorCode }: Pick<TabProps, "operatorCode">) {
                   <FleetCard
                     key={vehicle["bt-id"] ?? vehicle.bustimes_id}
                     vehicle={vehicle}
+                    href={`/completion?operator=${encodeURIComponent(operatorCode)}&code=${encodeURIComponent(operatorCode)}&fleet=${encodeURIComponent(vehicle.unit_number ?? "")}&reg=${encodeURIComponent(vehicle.reg ?? "")}`}
                   />
                 ))}
               </div>
