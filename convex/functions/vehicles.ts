@@ -10,6 +10,29 @@ type VehicleSummary = {
   livery_left: string;
 };
 
+function cleanToken(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function tripMatchesVehicle(
+  trip: Doc<"tripLogs">,
+  identifierKeys: Set<string>,
+  identifierCompact: string,
+): boolean {
+  const matches = (value: unknown) => {
+    const clean = cleanToken(String(value ?? ""));
+    return !!clean && (identifierKeys.has(clean) || clean === identifierCompact);
+  };
+  if (matches(trip.unit_number) || matches(trip.unit_reg)) return true;
+  const units = trip.units;
+  if (Array.isArray(units)) {
+    return units.some((u: any) =>
+      matches(u?.unit_number ?? u?.number ?? "") || matches(u?.unit_reg ?? "")
+    );
+  }
+  return false;
+}
+
 function toTripMatchSummary(trip: Doc<"tripLogs">) {
   return {
     _id: trip._id,
@@ -113,14 +136,8 @@ export const checkVehicleRidden = query({
   handler: async (ctx, args) => {
     if (!args.vehicleIdentifier) return { ridden: false, count: 0, trips: [] };
 
-    let trips = await getAllUserTrips(ctx, args.user);
-    if (args.operator) {
-      trips = trips.filter((trip) => trip.operator === args.operator);
-    }
-
     // Build exact-match keys from the identifier. Format varies per source,
     // e.g. "63176 - SN64 CGU" (fleet + reg) or just "SN64 CGU" / "63176".
-    const cleanToken = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
     const identifierKeys = new Set<string>();
     for (const part of args.vehicleIdentifier.trim().split(/\s+/)) {
       const clean = cleanToken(part);
@@ -129,25 +146,75 @@ export const checkVehicleRidden = query({
     const identifierCompact = cleanToken(args.vehicleIdentifier);
     if (identifierCompact) identifierKeys.add(identifierCompact);
 
-    const matchingTrips = trips.filter((trip) => {
-      const matches = (value: unknown) => {
-        const clean = cleanToken(String(value ?? ""));
-        return !!clean && (identifierKeys.has(clean) || clean === identifierCompact);
-      };
-      if (matches(trip.unit_number) || matches(trip.unit_reg)) return true;
-      const units = trip.units;
-      if (Array.isArray(units)) {
-        return units.some((u: any) =>
-          matches(u?.unit_number ?? u?.number ?? "") || matches(u?.unit_reg ?? "")
-        );
+    // Fast path: seenUnits is one row per unique vehicle the user has ridden,
+    // so it is much smaller than the full trip log. If none of the user's seen
+    // vehicles match the identifier, we can usually return false without
+    // touching tripLogs at all.
+    const seenUnits = await ctx.db
+      .query("seenUnits")
+      .withIndex("by_user_vehicle", (q) => q.eq("user", args.user))
+      .collect();
+    const matchingKeys = new Set<string>();
+    for (const seen of seenUnits) {
+      const keyLower = seen.vehicle_key.toLowerCase();
+      for (const token of identifierKeys) {
+        if (keyLower.endsWith(`_${token}`) || keyLower === token) {
+          matchingKeys.add(seen.vehicle_key);
+        }
       }
-      return false;
-    });
+    }
+
+    const matchingTrips: Doc<"tripLogs">[] = [];
+    const operator = args.operator;
+    const baseQuery = operator
+      ? ctx.db
+          .query("tripLogs")
+          .withIndex("by_user_and_operator", (q) =>
+            q.eq("user", args.user).eq("operator", operator)
+          )
+          .order("desc")
+      : ctx.db
+          .query("tripLogs")
+          .withIndex("by_user", (q) => q.eq("user", args.user))
+          .order("desc");
+
+    if (matchingKeys.size === 0) {
+      // Fallback for older trips that pre-date the seenUnits backfill: scan
+      // only the newest 1000 trips instead of the whole log.
+      let scanned = 0;
+      const FALLBACK_SCAN_LIMIT = 1000;
+      for await (const trip of baseQuery) {
+        if (tripMatchesVehicle(trip, identifierKeys, identifierCompact)) {
+          matchingTrips.push(trip);
+          if (matchingTrips.length >= 5) break;
+        }
+        scanned++;
+        if (scanned >= FALLBACK_SCAN_LIMIT) break;
+      }
+    } else {
+      // User has ridden this vehicle; stream matching trips newest-first and
+      // stop once we have enough to display.
+      const matchingKeysLower = new Set([...matchingKeys].map((k) => k.toLowerCase()));
+      for await (const trip of baseQuery) {
+        const tripKeys = new Set((trip.vehicle_keys ?? []).map((k) => k.toLowerCase()));
+        let hit = false;
+        for (const key of matchingKeysLower) {
+          if (tripKeys.has(key)) {
+            hit = true;
+            break;
+          }
+        }
+        if (hit) {
+          matchingTrips.push(trip);
+          if (matchingTrips.length >= 5) break;
+        }
+      }
+    }
 
     return {
       ridden: matchingTrips.length > 0,
       count: matchingTrips.length,
-      trips: matchingTrips.slice(0, 5).map((t) => ({
+      trips: matchingTrips.map((t) => ({
         _id: t._id,
         service_number: t.service_number,
         operator: t.operator,

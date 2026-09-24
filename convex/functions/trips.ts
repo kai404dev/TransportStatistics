@@ -486,7 +486,7 @@ async function getRouteDetails(ctx: QueryCtx, trip: Doc<"tripLogs">) {
 
 
 
-async function saveRouteDetails(
+export async function saveRouteDetails(
   ctx: MutationCtx,
   tripId: Id<"tripLogs">,
   user: string,
@@ -936,21 +936,28 @@ export const getMyTripsPaginated = query({
     includeRoutes: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const allTrips = await getAllUserTrips(ctx, args.user);
+    // Paginate directly against the index instead of loading the user's entire
+    // trip log into memory. The old offset-based numeric cursor is treated as
+    // "start over" because it came from the full-collect implementation.
+    const cursor =
+      args.paginationOpts.cursor !== null && /^\d+$/.test(args.paginationOpts.cursor)
+        ? null
+        : args.paginationOpts.cursor;
 
-    const cursor = args.paginationOpts.cursor ? parseInt(args.paginationOpts.cursor, 10) : 0;
-    const numItems = Math.max(args.paginationOpts.numItems, 20);
-    const end = Math.min(cursor + numItems, allTrips.length);
+    const result = await ctx.db
+      .query("tripLogs")
+      .withIndex("by_user_date_departure", (q) => q.eq("user", args.user))
+      .order("desc")
+      .paginate({ ...args.paginationOpts, cursor });
 
-    const page = allTrips.slice(cursor, end);
-    const continueCursor = end < allTrips.length ? String(end) : "";
+    const page = args.includeRoutes
+      ? await batchAttachRouteDetails(ctx, result.page)
+      : result.page.map(toTripSummary);
 
     return {
-      page: args.includeRoutes
-        ? await batchAttachRouteDetails(ctx, page)
-        : page.map(toTripSummary),
-      continueCursor,
-      isDone: end >= allTrips.length,
+      page,
+      continueCursor: result.continueCursor,
+      isDone: result.isDone,
     };
   },
 });
@@ -994,21 +1001,26 @@ export const getUserTripsPaginated = query({
       if (!isFriend) return { page: [], continueCursor: "", isDone: true };
     }
 
-    const allTrips = await getAllUserTrips(ctx, args.userId);
+    // Use native index pagination instead of collecting the whole log.
+    const cursor =
+      args.paginationOpts.cursor !== null && /^\d+$/.test(args.paginationOpts.cursor)
+        ? null
+        : args.paginationOpts.cursor;
 
-    const cursor = args.paginationOpts.cursor ? parseInt(args.paginationOpts.cursor, 10) : 0;
-    const numItems = Math.max(args.paginationOpts.numItems, 20);
-    const end = Math.min(cursor + numItems, allTrips.length);
+    const result = await ctx.db
+      .query("tripLogs")
+      .withIndex("by_user_date_departure", (q) => q.eq("user", args.userId))
+      .order("desc")
+      .paginate({ ...args.paginationOpts, cursor });
 
-    const page = allTrips.slice(cursor, end);
-    const continueCursor = end < allTrips.length ? String(end) : "";
+    const page = args.includeRoutes
+      ? await batchAttachRouteDetails(ctx, result.page)
+      : result.page.map(toTripSummary);
 
     return {
-      page: args.includeRoutes
-        ? await batchAttachRouteDetails(ctx, page)
-        : page.map(toTripSummary),
-      continueCursor,
-      isDone: end >= allTrips.length,
+      page,
+      continueCursor: result.continueCursor,
+      isDone: result.isDone,
     };
   },
 });
@@ -1250,11 +1262,10 @@ export const logTrip = mutation({
       ...tripFields,
       bustimes_trip_id,
       vehicle_journey_id,
-      time_aware_polyline,
-      scheduled_geometry,
-      actual_geometry,
-      scheduled_route,
-      actual_route,
+      // Route blobs (geometries, polylines, per-stop routes) live ONLY in
+      // tripRouteDetails. Keeping them out of tripLogs keeps trip docs small
+      // so full-log reads (stats, lists) stay within the per-execution byte
+      // budget.
       unit_number,
       unit_reg,
       unit_type: primaryUnit?.unit_type,
@@ -1356,11 +1367,8 @@ export const updateTrip = mutation({
       bustimes_service_slug: args.bustimes_service_slug,
       bustimes_trip_id,
       vehicle_journey_id,
-      time_aware_polyline,
-      scheduled_geometry,
-      actual_geometry,
-      scheduled_route,
-      actual_route,
+      // Route blobs live ONLY in tripRouteDetails (see logTrip) — never patch
+      // them inline here.
       origin_name: args.origin_name,
       origin_stop_code: args.origin_stop_code,
       destination_name: args.destination_name,

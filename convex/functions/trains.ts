@@ -325,6 +325,8 @@ export const getDetailsForRids = query({
   },
 });
 
+const EXISTING_RIDS_MAX_BATCH = 500;
+
 /**
  * Highly efficient pre-flight check for syncAllTrains.
  * Returns only the RIDs that already have records in the database.
@@ -333,12 +335,15 @@ export const checkExistingRids = query({
   args: { rids: v.array(v.string()) },
   handler: async (ctx, args) => {
     if (args.rids.length === 0) return [];
+    // Cap batch size so a single call can't issue an unbounded number of
+    // point lookups. syncAllTrains slices its input to match this limit.
+    const rids = args.rids.slice(0, EXISTING_RIDS_MAX_BATCH);
     const results = await Promise.all(
-      args.rids.map((rid) =>
+      rids.map((rid) =>
         ctx.db.query("ridIndex").withIndex("by_rid", (q) => q.eq("rid", rid)).first()
       )
     );
-    return args.rids.filter((_, i) => results[i] !== null);
+    return rids.filter((_, i) => results[i] !== null);
   },
 });
 
@@ -533,8 +538,9 @@ export const syncAllTrains = action({
 
     if (!rids.length) return;
 
-    // Check which RIDs we already have — using efficient existence check
-    const CHUNK_SIZE = 1000;
+    // Check which RIDs we already have — using efficient existence check.
+    // Keep this in sync with EXISTING_RIDS_MAX_BATCH in checkExistingRids.
+    const CHUNK_SIZE = 500;
     const knownRids = new Set<string>();
     
     for (let i = 0; i < rids.length; i += CHUNK_SIZE) {

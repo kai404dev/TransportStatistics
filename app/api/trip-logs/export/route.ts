@@ -53,20 +53,47 @@ export async function GET(request: Request) {
     convex.setAuth(token);
 
     const format = new URL(request.url).searchParams.get("format") ?? "csv";
-    const trips: any[] = [];
-    let cursor: string | null = null;
+    const tripsById = new Map<string, any>();
 
+    // Owned trips: paginated directly over the user's trip log index.
+    let ownedCursor: string | null = null;
     while (true) {
       const page: any = await convex.query(api.functions.trips.getMyTripsPaginated, {
         user: userId,
-        paginationOpts: { cursor, numItems: 500 },
+        paginationOpts: { cursor: ownedCursor, numItems: 500 },
         includeRoutes: true,
       });
 
-      trips.push(...page.page);
+      for (const trip of page.page) {
+        tripsById.set(String(trip._id), trip);
+      }
       if (page.isDone) break;
-      cursor = page.continueCursor;
+      ownedCursor = page.continueCursor;
     }
+
+    // Participated trips: page through the separate participants index so we
+    // don't force the owned-trip query to load the entire log into memory.
+    let participatedCursor: string | undefined = undefined;
+    while (true) {
+      const page: any = await convex.query(api.functions.trips.getMyParticipatedTripsPage, {
+        user: userId,
+        cursor: participatedCursor,
+        includeRoutes: true,
+      });
+
+      for (const trip of page.page) {
+        tripsById.set(String(trip._id), trip);
+      }
+      if (page.isDone) break;
+      participatedCursor = page.continueCursor;
+    }
+
+    // Stable descending sort by service date (ms first, then seconds).
+    const trips = [...tripsById.values()].sort((a: any, b: any) => {
+      const aDate = a.service_date > 1_000_000_000_000 ? a.service_date : a.service_date * 1000;
+      const bDate = b.service_date > 1_000_000_000_000 ? b.service_date : b.service_date * 1000;
+      return bDate - aDate;
+    });
 
     if (format === "json") {
       const payload = JSON.stringify(trips, null, 2);
