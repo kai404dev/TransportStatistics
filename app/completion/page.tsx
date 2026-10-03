@@ -6,6 +6,8 @@ type CompletionPageProps = {
     operator?: string;
     name?: string;
     code?: string;
+    fleet?: string;
+    reg?: string;
   }>;
 };
 
@@ -21,6 +23,8 @@ export default async function CompletionPage({ searchParams }: CompletionPagePro
         operatorSlug={params.operator ?? null}
         operatorName={params.name ?? ""}
         operatorCode={params.code ?? ""}
+        vehicleFleet={params.fleet ?? null}
+        vehicleReg={params.reg ?? null}
       />
     </div>
   );
