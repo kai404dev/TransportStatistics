@@ -15,6 +15,8 @@ export interface Vehicle {
   withdrawn: boolean;
   ridden: boolean;
   times_ridden: number;
+  distance_km: number;
+  time_minutes: number;
   livery?: {
     current_bustimes_livery?: LiveryInfo;
     previous_bustimes_livery?: LiveryInfo;
