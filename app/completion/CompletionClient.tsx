@@ -6,6 +6,7 @@ import { useUser } from "@clerk/nextjs";
 import { api } from "@/convex/_generated/api";
 import Link from "next/link";
 import { ChevronRight, Search } from "lucide-react";
+import { VehicleDetail } from "./VehicleDetail";
 
 import { OverviewTab } from "./tabs/OverviewTab";
 import { FleetTab } from "./tabs/FleetTab";
@@ -146,7 +147,7 @@ function OperatorGrid() {
   );
 }
 
-function OperatorDetail({ operatorSlug, operatorName, operatorCode }: { operatorSlug: string; operatorName: string; operatorCode: string; }) {
+function OperatorDetail({ operatorSlug, operatorName, operatorCode, vehicleFleet, vehicleReg }: { operatorSlug: string; operatorName: string; operatorCode: string; vehicleFleet: string | null; vehicleReg: string | null; }) {
   const { user, isLoaded } = useUser();
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
@@ -159,6 +160,17 @@ function OperatorDetail({ operatorSlug, operatorName, operatorCode }: { operator
   );
 
   if (!isLoaded) return <div className="h-screen bg-[var(--color-ts-bg)] animate-pulse rounded-2xl" />;
+
+  if (vehicleFleet || vehicleReg) {
+    return (
+      <VehicleDetail
+        operatorCode={operatorCode}
+        operatorName={operatorName}
+        fleetNumber={vehicleFleet}
+        registration={vehicleReg}
+      />
+    );
+  }
 
   return (
     <div>
@@ -209,9 +221,9 @@ function OperatorDetail({ operatorSlug, operatorName, operatorCode }: { operator
   );
 }
 
-export default function CompletionClient({ operatorSlug, operatorName, operatorCode }: { operatorSlug: string | null; operatorName: string; operatorCode: string; }) {
+export default function CompletionClient({ operatorSlug, operatorName, operatorCode, vehicleFleet, vehicleReg }: { operatorSlug: string | null; operatorName: string; operatorCode: string; vehicleFleet: string | null; vehicleReg: string | null; }) {
   if (operatorSlug) {
-    return <OperatorDetail operatorSlug={operatorSlug} operatorName={operatorName} operatorCode={operatorCode} />;
+    return <OperatorDetail operatorSlug={operatorSlug} operatorName={operatorName} operatorCode={operatorCode} vehicleFleet={vehicleFleet} vehicleReg={vehicleReg} />;
   }
 
   return <OperatorGrid />;
